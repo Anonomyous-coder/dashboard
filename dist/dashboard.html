@@ -975,6 +975,47 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       .join("")}</div>`;
   };
 
+  // ---- import parsing (CSV or pasted email subjects) ----
+  function normStatus(s) {
+    s = (s || "").toLowerCase();
+    if (/reject|declin|unfortunate|regret|not (be )?moving|filled|other candidate|not selected/.test(s)) return "rejected";
+    if (/offer/.test(s)) return "offer";
+    if (/interview|screen|phone|onsite|next step/.test(s)) return "interview";
+    if (/appl|submit/.test(s)) return "applied";
+    return null;
+  }
+  function parseImport(text) {
+    const lines = (text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return [];
+    const out = [];
+    let startIdx = 0, cols = null;
+    if (lines[0].toLowerCase().includes("company")) { cols = lines[0].split(",").map((c) => c.trim().toLowerCase()); startIdx = 1; }
+    const dataLines = lines.slice(startIdx);
+    const isCSV = dataLines.filter((l) => l.includes(",")).length >= Math.max(1, Math.ceil(dataLines.length / 2));
+    for (let i = startIdx; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCSV && line.includes(",")) {
+        const parts = line.split(",").map((p) => p.trim());
+        if (cols) {
+          const rec = {}; cols.forEach((c, idx) => (rec[c] = parts[idx] || ""));
+          out.push({ company: rec.company, role: rec.role || rec.position || rec.title || "", status: normStatus(rec.status) || "applied", location: rec.location || "", salary: rec.salary || "", applied: rec.date ? new Date(rec.date).toISOString() : null });
+        } else {
+          out.push({ company: parts[0], role: parts[1] || "", status: normStatus(parts[2]) || "applied", applied: parts[3] ? new Date(parts[3]).toISOString() : null });
+        }
+      } else {
+        const status = normStatus(line) || "applied";
+        let company = "", role = "";
+        const m = line.match(/(?:from|at|@|with|—|-)\s+([A-Z][\w&.\- ]{1,40})\s*$/);
+        if (m) company = m[1].trim();
+        const rm = line.match(/(?:applying (?:to|for)|application (?:for|to)|for|to)\s+(?:the\s+)?([A-Za-z][\w\/ ]{2,40}?)(?:\s+(?:at|with|position|role)\b|$)/i);
+        if (rm) role = rm[1].trim();
+        if (!company) { const cm = line.match(/\b([A-Z][a-zA-Z]+(?:\s[A-Z][a-zA-Z]+)?)\b/); company = cm ? cm[1] : line.slice(0, 24); }
+        out.push({ company, role, status, applied: null });
+      }
+    }
+    return out.filter((r) => r.company);
+  }
+
   /* =========================================================
      1. MY DASHBOARD
   ========================================================= */
@@ -1088,6 +1129,7 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       <div class="page-head">
         <div class="ph-text"><h1>Job Applications</h1><p>Track every application from applied to offer.</p></div>
         <div class="ph-actions">
+          <button class="btn" id="importApp">⬆ Import</button>
           <button class="btn" id="syncGmail">⟳ Sync Gmail</button>
           <button class="btn primary" id="addApp">＋ Add application</button>
         </div>
@@ -1154,6 +1196,41 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       };
       root.querySelector("#addApp").onclick = () => open(null);
       root.querySelector("#syncGmail").onclick = () => window.App.runGmailSync();
+      root.querySelector("#importApp").onclick = () => {
+        U.modal({
+          title: "Import applications",
+          body: `
+            <p class="muted" style="margin-bottom:10px">Paste one application per line. Two formats work:</p>
+            <p class="faint" style="font-size:12px;margin-bottom:12px;line-height:1.6">
+              • <b>CSV:</b> Company, Role, Status, Date<br>
+              • <b>Email subjects:</b> just paste them — we'll guess the status (applied / interview / offer / rejected)</p>
+            <div class="field"><textarea id="impText" style="min-height:150px" placeholder="Stripe, Product Manager, interview, 2026-05-01&#10;Notion, Operations Lead, offer&#10;Thank you for applying to Linear&#10;Unfortunately we won't be moving forward - Airbnb"></textarea></div>
+            <div class="field"><label>…or upload a .csv / .txt file</label><input type="file" id="impFile" accept=".csv,.txt"/></div>`,
+          footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="impRun">Import</button>`,
+          onMount: (card) => {
+            const ta = card.querySelector("#impText");
+            card.querySelector("#impFile").onchange = (e) => {
+              const f = e.target.files[0]; if (!f) return;
+              const r = new FileReader(); r.onload = () => { ta.value = r.result; }; r.readAsText(f);
+            };
+            card.querySelector("#impRun").onclick = () => {
+              const rows = parseImport(ta.value);
+              if (!rows.length) { U.toast("Nothing to import — check the format", "error"); return; }
+              const apps = S.get().applications;
+              let added = 0;
+              rows.forEach((r) => {
+                const dup = apps.find((a) => a.company.toLowerCase() === r.company.toLowerCase() && (a.role || "").toLowerCase() === (r.role || "").toLowerCase());
+                if (dup) return;
+                S.add("applications", { company: r.company, role: r.role || "—", status: r.status, location: r.location || "", salary: r.salary || "", source: "Import", applied: r.applied || new Date().toISOString(), notes: "Imported", interviewDate: null });
+                added++;
+              });
+              U.closeModal();
+              U.toast(`Imported ${added} application(s)`, "success");
+              window.App.rerender();
+            };
+          },
+        });
+      };
       root.querySelectorAll("#filters [data-filter]").forEach((b) => (b.onclick = () => { appFilter = b.dataset.filter; window.App.rerender(); }));
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => open(S.find("applications", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
