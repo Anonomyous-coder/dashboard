@@ -148,7 +148,10 @@
       return `
       <div class="page-head">
         <div class="ph-text"><h1>Job Applications</h1><p>Track every application from applied to offer.</p></div>
-        <div class="ph-actions"><button class="btn primary" id="addApp">＋ Add application</button></div>
+        <div class="ph-actions">
+          <button class="btn" id="syncGmail">⟳ Sync Gmail</button>
+          <button class="btn primary" id="addApp">＋ Add application</button>
+        </div>
       </div>
 
       <div class="grid cols-4">
@@ -211,6 +214,7 @@
         });
       };
       root.querySelector("#addApp").onclick = () => open(null);
+      root.querySelector("#syncGmail").onclick = () => window.App.runGmailSync();
       root.querySelectorAll("#filters [data-filter]").forEach((b) => (b.onclick = () => { appFilter = b.dataset.filter; window.App.rerender(); }));
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => open(S.find("applications", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
@@ -496,6 +500,18 @@
       </div>
 
       <div class="card mt-24">
+        <div class="card-head"><h3>Gmail sync</h3>${p.gmailLastSync ? `<div class="ch-actions"><span class="chip">Last sync ${U.ago(p.gmailLastSync)}</span></div>` : ""}</div>
+        <div class="card-pad">
+          <p class="muted" style="margin-bottom:14px">Auto-import your job applications, interviews, rejections and offers from Gmail. Read-only — nothing is ever sent or deleted. Paste the Google OAuth Client ID you created (stored only in this browser).</p>
+          <div class="field"><label>Google OAuth Client ID</label><input id="gmailClientId" placeholder="xxxxxxxx.apps.googleusercontent.com" value="${U.esc(p.gmailClientId || "")}"/></div>
+          <div class="flex gap-8" style="flex-wrap:wrap">
+            <button class="btn" id="saveGmailId">Save Client ID</button>
+            <button class="btn primary" id="syncGmailNow">⟳ Sync now</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-24">
         <div class="card-head"><h3>Data & preferences</h3></div>
         <div class="card-pad flex between center" style="flex-wrap:wrap;gap:12px">
           <div><div class="row-main">Reset workspace data</div><div class="row-sub">Restore all sections to the original sample data.</div></div>
@@ -513,6 +529,14 @@
         });
         U.toast("Profile saved", "success");
         window.App.refreshSidebarUser();
+      };
+      root.querySelector("#saveGmailId").onclick = () => {
+        S.setProfile({ gmailClientId: root.querySelector("#gmailClientId").value.trim() });
+        U.toast("Client ID saved", "success");
+      };
+      root.querySelector("#syncGmailNow").onclick = () => {
+        S.setProfile({ gmailClientId: root.querySelector("#gmailClientId").value.trim() });
+        window.App.runGmailSync();
       };
       root.querySelector("#resetData").onclick = () =>
         U.confirm("This will erase your changes and restore sample data. Continue?", () => {

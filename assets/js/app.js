@@ -79,6 +79,47 @@
       }
       this.renderNav();
     },
+    async runGmailSync() {
+      const clientId = (S.get().profile.gmailClientId || "").trim();
+      if (!clientId) {
+        U.modal({
+          title: "Connect Gmail",
+          body: `<p class="muted">To sync, paste your Google OAuth Client ID (a one-time ~5 min setup). It's stored only in this browser.</p>
+                 <div class="field" style="margin-top:14px"><label>Google OAuth Client ID</label><input id="gid" placeholder="xxxx.apps.googleusercontent.com"/></div>
+                 <p class="faint" style="font-size:12px">Don't have one yet? Open <strong>My Account → Gmail sync</strong> for where to get it.</p>`,
+          footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="saveGid">Save & continue</button>`,
+          onMount: (card) => {
+            card.querySelector("#saveGid").onclick = () => {
+              const v = card.querySelector("#gid").value.trim();
+              if (!v) { U.toast("Enter a Client ID", "error"); return; }
+              S.setProfile({ gmailClientId: v });
+              U.closeModal();
+              App.runGmailSync();
+            };
+          },
+        });
+        return;
+      }
+      U.modal({
+        title: "Syncing Gmail",
+        body: `<div style="text-align:center;padding:8px">
+                 <div id="gp" style="font-size:18px;font-weight:600">Starting…</div>
+                 <p class="faint mt-16">A Google sign-in window may pop up — approve <strong>read-only</strong> access. If it's blocked, allow popups for this site.</p>
+               </div>`,
+        footer: `<button class="btn" data-modal-close>Run in background</button>`,
+      });
+      const prog = (m) => { const e = document.getElementById("gp"); if (e) e.textContent = m; };
+      try {
+        const res = await window.Gmail.sync({ onProgress: prog });
+        U.closeModal();
+        U.toast(`Gmail synced — ${res.added} added, ${res.updated} updated (${res.scanned} scanned)`, "success");
+        this.render();
+      } catch (e) {
+        U.closeModal();
+        if (e && e.message === "NO_CLIENT_ID") { this.runGmailSync(); return; }
+        U.toast("Sync failed: " + (e && e.message ? e.message : e), "error");
+      }
+    },
     openSidebar() { document.getElementById("sidebar").classList.add("open"); document.getElementById("scrim").classList.add("show"); },
     closeSidebar() { document.getElementById("sidebar").classList.remove("open"); document.getElementById("scrim").classList.remove("show"); },
   };

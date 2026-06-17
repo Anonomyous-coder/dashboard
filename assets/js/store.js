@@ -18,6 +18,8 @@
         location: "Austin, TX",
         role: "Admin",
         hourlyRate: 65,
+        gmailClientId: "",
+        gmailLastSync: null,
       },
       // ---- Personal ----
       applications: [
@@ -46,6 +48,7 @@
         { id: uid(), company: "Mercury", role: "Head of Operations", location: "Remote", salary: "$180k–$220k", type: "Full-time", tags: ["Leadership", "Remote"], posted: daysAgo(5) },
       ],
       savedJobs: [],
+      gmailSyncedIds: [],
       // ---- Workspace ----
       sops: [
         { id: uid(), title: "Employee Onboarding Checklist", category: "HR", version: "v2.1", fileName: "onboarding-checklist.pdf", size: 248320, uploadedBy: "Alex Morgan", uploaded: daysAgo(9) },
