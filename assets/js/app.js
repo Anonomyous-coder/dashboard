@@ -129,8 +129,8 @@
   // ---- init ----
   function init() {
     // theme
-    const savedTheme = localStorage.getItem("wd_theme");
-    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+    const savedTheme = localStorage.getItem("wd_theme") || "dark";
+    document.documentElement.setAttribute("data-theme", savedTheme);
     document.getElementById("themeToggle").onclick = () => {
       const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", cur);
