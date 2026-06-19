@@ -12,14 +12,14 @@
   }
 
   // Pop the Google consent screen and resolve with an access token.
-  function getToken(clientId) {
+  function getToken(clientId, scope) {
     return new Promise((resolve, reject) => {
       if (!gisReady())
         return reject(new Error("Google sign-in didn't load. Check your connection, then retry."));
       try {
         const client = google.accounts.oauth2.initTokenClient({
           client_id: clientId,
-          scope: SCOPE,
+          scope: scope || SCOPE,
           callback: (resp) => {
             if (resp && resp.access_token) resolve(resp.access_token);
             else reject(new Error("Authorization was cancelled."));
@@ -171,5 +171,21 @@
     return { added, updated, scanned: ids.length };
   }
 
-  window.Gmail = { sync };
+  // Send an email FROM the signed-in Google account (no backend).
+  async function sendEmail(to, subject, text) {
+    const clientId = (S.get().profile.gmailClientId || "").trim();
+    if (!clientId) throw new Error("NO_CLIENT_ID");
+    const token = await getToken(clientId, "https://www.googleapis.com/auth/gmail.send");
+    const mime = `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset="UTF-8"\r\n\r\n${text}`;
+    const raw = btoa(unescape(encodeURIComponent(mime))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw }),
+    });
+    if (!r.ok) { const t = await r.text(); throw new Error("Gmail send " + r.status + ": " + t.slice(0, 160)); }
+    return r.json();
+  }
+
+  window.Gmail = { sync, sendEmail };
 })();

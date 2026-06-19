@@ -1771,9 +1771,10 @@
               <td class="muted nowrap">${c.sent_at ? U.dateShort(c.sent_at) : "—"}</td>
               <td class="muted nowrap">${c.signed_at ? U.dateShort(c.signed_at) : "—"}</td>
               <td><div class="flex gap-8 nowrap">
-                ${c.file_url ? `<button class="btn sm" data-placefields="${c.id}">Place fields</button>` : ""}
+                ${c.file_url ? `<button class="btn sm ghost" data-placefields="${c.id}">Place fields</button>` : ""}
                 ${c.status === "signed" ? `<button class="btn sm" data-viewsigned="${c.id}">View signed</button>` : (c.file_url ? `<button class="btn sm ghost" data-preview="${c.id}">Preview</button>` : "")}
-                ${(c.status === "draft" || c.status === "expired") ? `<button class="btn sm" data-invite="${c.id}">✉️ Invite</button>` : ""}
+                ${(c.status === "draft" || c.status === "expired") ? `<button class="btn sm primary" data-invite="${c.id}">📨 Send to sign</button>` : ""}
+                ${c.status === "invited" ? `<button class="btn sm" data-invite="${c.id}">Resend</button>` : ""}
                 <button class="btn sm ghost" data-del="${c.id}" style="color:var(--danger)">Delete</button>
               </div></td>
             </tr>`).join("")
@@ -1805,15 +1806,24 @@
     const addBtn = root.querySelector("#addContract");
     if (!addBtn) return;
     addBtn.onclick = openContractUpload;
-    root.querySelectorAll("[data-invite]").forEach((b) => (b.onclick = () => {
+    root.querySelectorAll("[data-invite]").forEach((b) => (b.onclick = async () => {
       const c = find(b.dataset.invite);
       const p = window.DB.profile(c.assigned_to);
-      if (!p || !p.email) { U.toast("That member has no email on file", "error"); return; }
+      if (!p || !p.email) { U.toast("That member has no email on file (add one on their account)", "error"); return; }
       const me = window.DB.me(); const url = location.origin + location.pathname;
-      const su = encodeURIComponent(`Please sign: ${c.title}`);
-      const body = encodeURIComponent(`Hi ${window.DB.displayName(p)},\n\nYou have a contract to review and sign: "${c.title}".\n\nSign in and open Contracts:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`);
-      window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(p.email)}&su=${su}&body=${body}`, "_blank");
-      window.DB.updateContract(c.id, { status: "invited", sent_at: new Date().toISOString() }).then(() => { U.toast("Invite opened in Gmail", "success"); window.App.rerender(); });
+      const subject = `Please sign: ${c.title}`;
+      const text = `Hi ${window.DB.displayName(p)},\n\nYou have a contract to review and sign: "${c.title}".\n\nSign in and open Contracts:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`;
+      const markSent = async () => { await window.DB.updateContract(c.id, { status: "invited", sent_at: new Date().toISOString() }); window.App.rerender(); };
+      // Try to send the email automatically from the admin's Gmail; fall back to opening a compose window.
+      try {
+        await window.Gmail.sendEmail(p.email, subject, text);
+        await markSent();
+        U.toast("Email sent to " + p.email, "success");
+      } catch (e) {
+        window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(p.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
+        await markSent();
+        U.toast(e && e.message === "NO_CLIENT_ID" ? "Opened Gmail to send (connect Gmail in My Account to auto-send)" : "Opened Gmail to send", "success");
+      }
     }));
     root.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () =>
       U.confirm("Delete this contract?", async () => { await window.DB.removeContract(b.dataset.del); U.toast("Deleted"); window.App.rerender(); })));
