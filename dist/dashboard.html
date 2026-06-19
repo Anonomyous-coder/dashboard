@@ -1417,97 +1417,103 @@ window.APP_CONFIG = {
   /* =========================================================
      1. MY DASHBOARD
   ========================================================= */
+  let dashRange = "today"; // today | 7 | 15 | 30
+  const fmtDur = (ms) => { const m = Math.round(ms / 60000); if (m < 60) return m + "m"; return (m / 60).toFixed(1) + "h"; };
   Views.dashboard = {
     title: "My Dashboard",
     render() {
-      const d = S.get();
-      const offers = d.applications.filter((a) => a.status === "offer").length;
-      const interviews = d.applications.filter((a) => a.status === "interview").length;
-      const weekMs = d.timeEntries
-        .filter((e) => Date.now() - new Date(e.clockIn) < 7 * 864e5)
-        .reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
-      const pendingExp = d.transactions.filter((t) => t.status === "pending").reduce((s, t) => s + t.amount, 0);
+      const prof = (window.Auth && window.Auth.profile && window.Auth.profile()) || S.get().profile;
+      const firstName = U.esc(((prof.full_name || prof.name || "there").split(" ")[0]));
+      const now = new Date();
+      const dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      const rangeDays = dashRange === "today" ? 1 : Number(dashRange);
+      const since = dashRange === "today" ? new Date(new Date().setHours(0, 0, 0, 0)) : new Date(Date.now() - rangeDays * 864e5);
+      const inRange = (iso) => iso && new Date(iso) >= since;
+      const rangeLabel = dashRange === "today" ? "Today" : dashRange + " days";
+      const dbOn = window.DB && window.DB.active;
 
-      // activity feed
-      const feed = [];
-      d.applications.slice(0, 3).forEach((a) =>
-        feed.push({ icon: "💼", tone: "primary", title: `${a.role} @ ${a.company}`, sub: "Job application — " + U.cap(a.status), time: a.applied }));
-      d.contracts.slice(0, 2).forEach((c) =>
-        feed.push({ icon: "📄", tone: "info", title: c.title, sub: "Contract — " + U.cap(c.status), time: c.sent || c.due }));
-      d.applicants.slice(0, 2).forEach((a) =>
-        feed.push({ icon: "🧑‍💼", tone: "warn", title: a.name, sub: "Applicant — " + U.cap(a.stage), time: a.applied }));
-      feed.sort((a, b) => new Date(b.time) - new Date(a.time));
+      const apps = S.get().applications || [];
+      const appsIn = apps.filter((a) => inRange(a.applied));
+      const offers = appsIn.filter((a) => a.status === "offer").length;
+      const interviews = appsIn.filter((a) => a.status === "interview").length;
 
-      const upcoming = d.applications
-        .filter((a) => a.interviewDate && new Date(a.interviewDate) > Date.now())
-        .sort((a, b) => new Date(a.interviewDate) - new Date(b.interviewDate));
+      const timeMs = dbOn
+        ? window.DB.timeEntries().filter((e) => e.clock_out && inRange(e.clock_in)).reduce((s, e) => s + (new Date(e.clock_out) - new Date(e.clock_in)), 0)
+        : (S.get().timeEntries || []).filter((e) => e.clockOut && inRange(e.clockIn)).reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
+
+      const contracts = dbOn ? window.DB.contracts() : (S.get().contracts || []);
+      const pending = contracts.filter((c) => ["invited", "draft", "sent"].includes(c.status));
+      const sopsCount = dbOn ? window.DB.sops().length : (S.get().sops || []).length;
+
+      const kpi = (label, value, sub, icon, tone) => `
+        <div class="stat"><div class="stat-top"><span class="stat-label">${label}</span><span class="stat-ico bg-${tone}">${icon}</span></div>
+          <span class="stat-value">${value}</span><span class="faint" style="font-size:12.5px">${sub}</span></div>`;
+
+      const recent = [...apps].sort((a, b) => new Date(b.applied) - new Date(a.applied)).slice(0, 6);
+      const nameOf = (c) => dbOn ? (window.DB.profile(c.assigned_to) ? window.DB.displayName(window.DB.profile(c.assigned_to)) : (c.party || "—")) : (c.assignedTo || c.party || "—");
 
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>Welcome back, ${U.esc(d.profile.name.split(" ")[0])} 👋</h1>
-          <p>Here's what's happening across your workspace today.</p></div>
-        <div class="ph-actions">
-          <button class="btn" data-go="jobsearch">🔍 Find jobs</button>
-          <button class="btn primary" data-go="timetracker">⏱ Time tracker</button>
+        <div class="ph-text">
+          <div class="faint" style="font-size:13px;font-weight:600;letter-spacing:.02em">${dateStr}</div>
+          <h1>Welcome back, ${firstName}</h1>
+          <p>Here's what's happening across your workspace.</p>
         </div>
+        <div class="ph-actions"><button class="btn" data-go="applications">View applications</button></div>
+      </div>
+
+      <div class="flex gap-8" id="dashRange" style="margin-bottom:18px;flex-wrap:wrap">
+        ${[["today", "Today"], ["7", "7 days"], ["15", "15 days"], ["30", "30 days"]].map(([v, l]) => `<button class="chip" data-range="${v}" style="${dashRange === v ? "background:var(--primary);color:#04121c;border-color:var(--primary);font-weight:700;cursor:pointer" : "cursor:pointer"}">${l}</button>`).join("")}
       </div>
 
       <div class="grid cols-4">
-        ${stat({ label: "Active applications", value: d.applications.filter((a) => !["rejected"].includes(a.status)).length, icon: "💼", tone: "primary", trend: { dir: "up", text: interviews + " in interview" } })}
-        ${stat({ label: "Offers", value: offers, icon: "🎉", tone: "success", trend: offers ? { dir: "up", text: "Congrats!" } : null })}
-        ${stat({ label: "Hours this week", value: U.hours(weekMs), icon: "⏱", tone: "info" })}
-        ${stat({ label: "Pending expenses", value: U.money(pendingExp), icon: "💳", tone: "warn", trend: { dir: "down", text: "Needs review" } })}
+        ${kpi(`Applications (${rangeLabel})`, appsIn.length, `${offers} offers, ${interviews} interviews`, "💼", "primary")}
+        ${kpi(`Time tracked (${rangeLabel})`, fmtDur(timeMs), "Across all projects", "⏱", "info")}
+        ${kpi("Contracts pending", pending.length, "Awaiting signature", "✍️", "warn")}
+        ${kpi("SOPs available", sopsCount, "Company playbooks", "📄", "success")}
       </div>
 
       <div class="grid cols-2 mt-24">
         <div class="card">
-          <div class="card-head"><h3>Recent activity</h3></div>
+          <div class="card-head"><h3>Recent application activity</h3><div class="ch-actions"><button class="btn sm ghost" data-go="applications">View all</button></div></div>
           <div class="card-pad">
-            <div class="list">
-              ${feed.slice(0, 6).map((f) => `
+            ${recent.length ? `<div class="list">${recent.map((a) => `
+              <div class="list-item">
+                <div class="avatar" style="width:38px;height:38px;font-size:12px;border-radius:10px">${U.initials(a.company)}</div>
+                <div class="li-text"><div class="li-title">${U.esc(a.company)}</div><div class="li-sub">${U.esc(a.role || "Role not specified")}</div></div>
+                <div class="flex gap-12 center"><span class="li-time">${U.ago(a.applied)}</span>${U.badge(a.status)}</div>
+              </div>`).join("")}</div>`
+              : U.empty("💼", "No applications yet. Sync Gmail or add one.")}
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:24px">
+          <div class="card">
+            <div class="card-head"><h3>Pending contracts</h3><div class="ch-actions"><button class="btn sm ghost" data-go="contracts">View all</button></div></div>
+            <div class="card-pad">
+              ${pending.length ? `<div class="list">${pending.slice(0, 5).map((c) => `
                 <div class="list-item">
-                  <div class="li-ico bg-${f.tone}">${f.icon}</div>
-                  <div class="li-text"><div class="li-title">${U.esc(f.title)}</div><div class="li-sub">${U.esc(f.sub)}</div></div>
-                  <div class="li-time">${U.ago(f.time)}</div>
-                </div>`).join("")}
+                  <div class="li-ico bg-warn">📄</div>
+                  <div class="li-text"><div class="li-title">${U.esc(c.title)}</div><div class="li-sub">Assigned to ${U.esc(nameOf(c))} · ${U.ago(c.sent_at || c.created_at || c.sent || c.due)}</div></div>
+                  ${U.badge(c.status)}
+                </div>`).join("")}</div>`
+                : U.empty("📄", "No pending contracts.")}
             </div>
           </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head"><h3>Upcoming interviews</h3><div class="ch-actions"><button class="btn sm ghost" data-go="applications">View all</button></div></div>
-          <div class="card-pad">
-            ${upcoming.length ? `<div class="list">${upcoming.map((a) => `
-              <div class="list-item">
-                <div class="li-ico bg-warn">📅</div>
-                <div class="li-text"><div class="li-title">${U.esc(a.company)}</div><div class="li-sub">${U.esc(a.role)}</div></div>
-                <div class="li-time">${U.until(a.interviewDate)}<br><span class="faint">${U.dateShort(a.interviewDate)}</span></div>
-              </div>`).join("")}</div>`
-              : U.empty("📅", "No interviews scheduled yet.")}
+          <div class="card">
+            <div class="card-head"><h3>Quick links</h3></div>
+            <div class="card-pad flex gap-8" style="flex-wrap:wrap">
+              <button class="btn" data-go="timetracker">⏱ Track time</button>
+              <button class="btn" data-go="jobsearch">🔍 Find jobs</button>
+              <button class="btn" data-go="sops">📄 Read SOPs</button>
+            </div>
           </div>
-        </div>
-      </div>
-
-      <div class="grid cols-3 mt-24">
-        <div class="card card-pad">
-          <div class="flex between center"><span class="muted">Team members</span><span class="li-ico bg-primary">👥</span></div>
-          <div class="stat-value mt-8">${d.team.length}</div>
-          <button class="btn sm ghost mt-8" data-go="team" style="align-self:flex-start">Manage team →</button>
-        </div>
-        <div class="card card-pad">
-          <div class="flex between center"><span class="muted">Open applicants</span><span class="li-ico bg-warn">🧑‍💼</span></div>
-          <div class="stat-value mt-8">${d.applicants.filter((a) => !["hired", "rejected"].includes(a.stage)).length}</div>
-          <button class="btn sm ghost mt-8" data-go="applicants" style="align-self:flex-start">Review pipeline →</button>
-        </div>
-        <div class="card card-pad">
-          <div class="flex between center"><span class="muted">Active contracts</span><span class="li-ico bg-info">📄</span></div>
-          <div class="stat-value mt-8">${d.contracts.filter((c) => ["sent", "signed"].includes(c.status)).length}</div>
-          <button class="btn sm ghost mt-8" data-go="contracts" style="align-self:flex-start">View contracts →</button>
         </div>
       </div>`;
     },
     mount(root) {
       root.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => window.App.go(b.dataset.go)));
+      root.querySelectorAll("[data-range]").forEach((b) => (b.onclick = () => { dashRange = b.dataset.range; window.App.rerender(); }));
     },
   };
 
