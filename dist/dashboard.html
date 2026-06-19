@@ -1789,6 +1789,7 @@ window.APP_CONFIG = {
           <div class="muted">${U.esc(p.title || "")}</div>
           <div class="flex gap-8 center mt-16" style="justify-content:center;flex-wrap:wrap">
             <span class="chip">📍 ${U.esc(p.location || "—")}</span>
+            ${p.id_number ? `<span class="chip">🪪 ${U.esc(p.id_number)}</span>` : ""}
             <span class="badge b-${p.role === "admin" ? "active" : "review"}">${U.cap(p.role || "employee")}</span>
           </div>
         </div>
@@ -1809,6 +1810,8 @@ window.APP_CONFIG = {
                 <div class="field"><label>Location</label><input name="location" value="${U.esc(p.location || "")}"/></div>
                 <div class="field"><label>Department</label><input name="dept" value="${U.esc(p.dept || "")}"/></div>
               </div>
+              <div class="field"><label>ID number</label><input name="id_number" placeholder="e.g. EMP-001 or government ID" value="${U.esc(p.id_number || "")}"/></div>
+              <div class="field"><label>Home address</label><textarea name="address" placeholder="Street, city, state, ZIP">${U.esc(p.address || "")}</textarea></div>
               ${canEditRole ? `<div class="field-row">
                 <div class="field"><label>Role</label><select name="role"><option value="employee" ${p.role === "employee" ? "selected" : ""}>Employee</option><option value="admin" ${p.role === "admin" ? "selected" : ""}>Admin</option></select></div>
                 <div class="field"><label>Status</label><select name="status"><option value="active" ${p.status === "active" ? "selected" : ""}>Active</option><option value="away" ${p.status === "away" ? "selected" : ""}>Away</option></select></div>
@@ -1825,7 +1828,7 @@ window.APP_CONFIG = {
     root.querySelector("#profileFormDB").onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;
-      const patch = { full_name: f.full_name.value.trim(), title: f.title.value.trim(), phone: f.phone.value.trim(), location: f.location.value.trim(), dept: f.dept.value.trim() };
+      const patch = { full_name: f.full_name.value.trim(), title: f.title.value.trim(), phone: f.phone.value.trim(), location: f.location.value.trim(), dept: f.dept.value.trim(), id_number: f.id_number.value.trim(), address: f.address.value.trim() };
       if (f.role) patch.role = f.role.value;
       if (f.status) patch.status = f.status.value;
       await window.DB.updateProfile(p.id, patch);
