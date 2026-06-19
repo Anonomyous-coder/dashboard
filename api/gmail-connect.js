@@ -1,5 +1,5 @@
-// Vercel function — send email server-side from the admin's Gmail (no interaction).
-// Uses the refresh token stored by /api/gmail-connect. Admin-only.
+// Vercel function — store a Gmail refresh token so the server can send email
+// as the admin's Gmail without further interaction. Admin-only.
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET.
 
 export default async function handler(req, res) {
@@ -9,6 +9,7 @@ export default async function handler(req, res) {
   if (!SUPA || !SR) { res.status(500).json({ error: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel env." }); return; }
   if (!CID || !CS) { res.status(500).json({ error: "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel env." }); return; }
 
+  // verify caller is an admin
   const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const who = await fetch(SUPA + "/auth/v1/user", { headers: { apikey: SR, Authorization: "Bearer " + token } });
   if (!who.ok) { res.status(401).json({ error: "Not signed in" }); return; }
@@ -18,29 +19,24 @@ export default async function handler(req, res) {
   if (!Array.isArray(prof) || !prof[0] || prof[0].role !== "admin") { res.status(403).json({ error: "Admins only" }); return; }
 
   let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } } body = body || {};
-  const { to, subject } = body;
-  if (!to || !subject) { res.status(400).json({ error: "Missing recipient or subject" }); return; }
-  const html = body.html || `<p>${(body.text || "").replace(/\n/g, "<br>")}</p>`;
+  if (!body.code) { res.status(400).json({ error: "Missing authorization code" }); return; }
 
   try {
-    const cfg = await (await fetch(`${SUPA}/rest/v1/app_config?key=eq.gmail_refresh_token&select=value`, { headers: { apikey: SR, Authorization: "Bearer " + SR } })).json();
-    const refresh = Array.isArray(cfg) && cfg[0] ? cfg[0].value : null;
-    if (!refresh) { res.status(400).json({ error: "Gmail not connected. Open My Account → Connect Gmail for sending." }); return; }
-
     const tok = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ client_id: CID, client_secret: CS, refresh_token: refresh, grant_type: "refresh_token" }),
+      body: new URLSearchParams({ code: body.code, client_id: CID, client_secret: CS, redirect_uri: "postmessage", grant_type: "authorization_code" }),
     });
     const tj = await tok.json();
-    if (!tok.ok || !tj.access_token) { res.status(502).json({ error: "Gmail token refresh failed: " + (tj.error_description || tj.error || "") }); return; }
-
-    const mime = [`To: ${to}`, `Subject: ${subject}`, "MIME-Version: 1.0", 'Content-Type: text/html; charset="UTF-8"', "", html].join("\r\n");
-    const raw = Buffer.from(mime).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const send = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-      method: "POST", headers: { Authorization: "Bearer " + tj.access_token, "Content-Type": "application/json" },
-      body: JSON.stringify({ raw }),
+    if (!tok.ok || !tj.refresh_token) {
+      res.status(502).json({ error: tj.error_description || tj.error || "No refresh token returned. Revoke prior access at myaccount.google.com/permissions and try again." });
+      return;
+    }
+    const save = await fetch(`${SUPA}/rest/v1/app_config?on_conflict=key`, {
+      method: "POST",
+      headers: { apikey: SR, Authorization: "Bearer " + SR, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: "gmail_refresh_token", value: tj.refresh_token }),
     });
-    if (!send.ok) { const t = await send.text(); res.status(502).json({ error: "Gmail send failed: " + t.slice(0, 160) }); return; }
+    if (!save.ok) { const t = await save.text(); res.status(502).json({ error: "Couldn't store token: " + t.slice(0, 160) }); return; }
     res.status(200).json({ ok: true });
   } catch (e) {
     res.status(502).json({ error: String(e && e.message ? e.message : e) });

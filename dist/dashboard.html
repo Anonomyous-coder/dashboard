@@ -2132,7 +2132,13 @@ window.APP_CONFIG = {
           <canvas id="sigPad" width="500" height="160" style="width:100%;max-width:500px;height:160px;background:#fff;border:1px dashed var(--border-strong);border-radius:8px;touch-action:none;cursor:crosshair;display:block"></canvas>
           <div class="flex gap-8 mt-8" style="flex-wrap:wrap"><button class="btn" id="sigClear">Clear</button><button class="btn" id="sigUpload">⬆ Upload image</button><button class="btn primary" id="sigSave">Save drawn signature</button><input type="file" id="sigFile" accept="image/*" style="display:none"/></div>
         </div></div>` : ""}
-      ${(window.DB.isAdmin() && !viewing) ? gmailCardHtml(S.get().profile) : ""}`;
+      ${(window.DB.isAdmin() && !viewing) ? gmailCardHtml(S.get().profile) : ""}
+      ${(window.DB.isAdmin() && !viewing) ? `<div class="card mt-24"><div class="card-head"><h3>Automatic email (Gmail)</h3></div>
+        <div class="card-pad">
+          <p class="muted" style="margin-bottom:12px">Connect your Gmail once so contract sends, invites, and reminders go out automatically — no clicking each time. Uses the same Google Client ID from Gmail sync above.</p>
+          <button class="btn primary" id="connectGmailSend">🔗 Connect Gmail for sending</button>
+          <p class="faint" id="connectGmailMsg" style="font-size:12px;margin-top:8px"></p>
+        </div></div>` : ""}`;
   }
   function accountDBMount(root) {
     const cv = root.querySelector("#sigPad");
@@ -2220,6 +2226,33 @@ window.APP_CONFIG = {
       window.App.rerender();
     };
     bindGmailCard(root);
+
+    const cg = root.querySelector("#connectGmailSend");
+    if (cg) cg.onclick = () => {
+      const cid = (S.get().profile.gmailClientId || "").trim();
+      const msg = root.querySelector("#connectGmailMsg");
+      if (!cid) { U.toast("Add your Google Client ID in the Gmail sync card first", "error"); return; }
+      if (!(window.google && google.accounts && google.accounts.oauth2)) { U.toast("Google library not loaded — check your connection", "error"); return; }
+      const codeClient = google.accounts.oauth2.initCodeClient({
+        client_id: cid,
+        scope: "https://www.googleapis.com/auth/gmail.send",
+        ux_mode: "popup",
+        callback: async (resp) => {
+          if (!resp || !resp.code) { if (msg) msg.textContent = "Authorization cancelled."; return; }
+          if (msg) msg.textContent = "Connecting…";
+          try {
+            const { data } = await window.Auth.client().auth.getSession();
+            const token = data.session && data.session.access_token;
+            const r = await fetch("/api/gmail-connect", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + (token || "") }, body: JSON.stringify({ code: resp.code }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || "HTTP " + r.status);
+            U.toast("Gmail connected — emails now send automatically ✓", "success");
+            if (msg) { msg.style.color = "var(--success)"; msg.textContent = "Connected. Contract sends, invites and reminders will email automatically."; }
+          } catch (e) { if (msg) { msg.style.color = "var(--danger)"; msg.textContent = "Connect failed: " + (e.message || e); } }
+        },
+      });
+      codeClient.requestCode();
+    };
   }
 
   /* =========================================================

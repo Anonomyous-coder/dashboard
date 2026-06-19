@@ -26,18 +26,25 @@ export default async function handler(req, res) {
       await fetch(`${SUPA}/rest/v1/notifications`, { method: "POST", headers: { ...h, Prefer: "return=minimal" }, body: JSON.stringify({ user_id: e.id, type: "reminder", message: `Reminder: submit your timesheet for the week of ${wsISO}.` }) });
     }
 
-    // optional email via Resend
-    const RK = process.env.RESEND_API_KEY;
-    const FROM = process.env.RESEND_FROM || "Workspace <onboarding@resend.dev>";
-    let emailed = 0;
-    if (RK) {
+    // optional email via the admin's connected Gmail
+    const CID = process.env.GOOGLE_CLIENT_ID, CS = process.env.GOOGLE_CLIENT_SECRET;
+    let emailed = 0, accessToken = null;
+    if (CID && CS) {
+      try {
+        const cfg = await (await fetch(`${SUPA}/rest/v1/app_config?key=eq.gmail_refresh_token&select=value`, { headers: h })).json();
+        const refresh = Array.isArray(cfg) && cfg[0] ? cfg[0].value : null;
+        if (refresh) {
+          const tj = await (await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: CID, client_secret: CS, refresh_token: refresh, grant_type: "refresh_token" }) })).json();
+          accessToken = tj.access_token || null;
+        }
+      } catch (e) { /* ignore email errors */ }
+    }
+    if (accessToken) {
       for (const e of missing) {
         if (!e.email) continue;
-        const r = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: "Bearer " + RK, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: FROM, to: e.email, subject: "Please submit your timesheet", html: `<p>Hi ${e.full_name || "there"},</p><p>This is a reminder to submit your timesheet for the week of <strong>${wsISO}</strong> in the Workspace dashboard.</p>` }),
-        });
+        const mime = [`To: ${e.email}`, "Subject: Please submit your timesheet", "MIME-Version: 1.0", 'Content-Type: text/html; charset="UTF-8"', "", `<p>Hi ${e.full_name || "there"},</p><p>Reminder to submit your timesheet for the week of <strong>${wsISO}</strong> in the Workspace dashboard.</p>`].join("\r\n");
+        const raw = Buffer.from(mime).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" }, body: JSON.stringify({ raw }) });
         if (r.ok) emailed++;
       }
     }
