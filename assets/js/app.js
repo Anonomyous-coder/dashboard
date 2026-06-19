@@ -61,6 +61,7 @@
       view.mount?.(content);
       if (banner) { const b = document.getElementById("exitViewAs"); if (b) b.onclick = () => { window.DB.viewAs = null; this.go("team"); }; }
       this.renderNav();
+      if (window.__refreshBell) window.__refreshBell();
     },
     renderNav() {
       const nav = document.getElementById("nav");
@@ -205,6 +206,34 @@
     document.body.appendChild(host);
   }
 
+  function addBell() {
+    const actions = document.querySelector(".topbar-actions");
+    if (!actions || document.getElementById("notifBell")) return;
+    const b = document.createElement("button");
+    b.id = "notifBell"; b.className = "icon-btn"; b.title = "Notifications"; b.style.position = "relative";
+    actions.insertBefore(b, actions.firstChild);
+    b.onclick = openNotifs;
+    refreshBell();
+  }
+  function refreshBell() {
+    const b = document.getElementById("notifBell");
+    if (!b) return;
+    const n = (window.DB && window.DB.active) ? window.DB.unreadCount() : 0;
+    b.innerHTML = `🔔${n ? `<span style="position:absolute;top:-3px;right:-3px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 4px">${n}</span>` : ""}`;
+  }
+  window.__refreshBell = refreshBell;
+  function openNotifs() {
+    const list = (window.DB && window.DB.active) ? window.DB.notifications() : [];
+    U.modal({
+      title: "Notifications",
+      body: list.length
+        ? `<div class="list">${list.map((n) => `<div class="list-item"><div class="li-ico bg-${n.read ? "info" : "success"}">🔔</div><div class="li-text"><div class="li-title">${U.esc(n.message)}</div><div class="li-sub">${U.ago(n.created_at)}</div></div></div>`).join("")}</div>`
+        : U.empty("🔔", "No notifications yet."),
+      footer: `<button class="btn primary" data-modal-close>Close</button>`,
+    });
+    if (window.DB && window.DB.active && window.DB.unreadCount()) window.DB.markAllRead().then(refreshBell);
+  }
+
   function addSignOut() {
     const f = document.querySelector(".sidebar-footer");
     if (!f || f.querySelector("#signOutBtn")) return;
@@ -232,6 +261,7 @@
       if (!loggedIn) { renderAuth(); return; }
       addSignOut();
       if (window.DB) await window.DB.load();
+      addBell();
     }
 
     // clock pill click → time tracker
