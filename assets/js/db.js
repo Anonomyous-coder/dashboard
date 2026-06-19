@@ -56,8 +56,8 @@
   DB.addContract = async (rec) => { rec.created_by = DB.me().id; await c().from("contracts").insert(rec); await DB.load(); };
   DB.updateContract = async (id, patch) => { await c().from("contracts").update(patch).eq("id", id); await DB.load(); };
   DB.removeContract = async (id) => { await c().from("contracts").delete().eq("id", id); await DB.load(); };
-  DB.signContract = async (ct) => {
-    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString() }).eq("id", ct.id);
+  DB.signContract = async (ct, fieldValues) => {
+    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString(), field_values: fieldValues || {} }).eq("id", ct.id);
     const me = DB.me();
     const admins = DB.cache.profiles.filter((p) => p.role === "admin");
     for (const a of admins) {

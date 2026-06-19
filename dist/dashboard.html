@@ -1034,8 +1034,8 @@ window.APP_CONFIG = {
   DB.addContract = async (rec) => { rec.created_by = DB.me().id; await c().from("contracts").insert(rec); await DB.load(); };
   DB.updateContract = async (id, patch) => { await c().from("contracts").update(patch).eq("id", id); await DB.load(); };
   DB.removeContract = async (id) => { await c().from("contracts").delete().eq("id", id); await DB.load(); };
-  DB.signContract = async (ct) => {
-    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString() }).eq("id", ct.id);
+  DB.signContract = async (ct, fieldValues) => {
+    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString(), field_values: fieldValues || {} }).eq("id", ct.id);
     const me = DB.me();
     const admins = DB.cache.profiles.filter((p) => p.role === "admin");
     for (const a of admins) {
@@ -1840,9 +1840,37 @@ window.APP_CONFIG = {
           </div>
         </div>
       </div>
+      ${!viewing ? `<div class="card mt-24"><div class="card-head"><h3>My signature</h3></div>
+        <div class="card-pad">
+          <p class="muted" style="margin-bottom:10px">Draw your signature — it's applied automatically when you sign contracts.</p>
+          ${p.signature_url ? `<div style="margin-bottom:10px"><span class="faint" style="font-size:12px">Current:</span><br><img src="${U.esc(p.signature_url)}" style="max-height:80px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px"/></div>` : ""}
+          <canvas id="sigPad" width="500" height="160" style="width:100%;max-width:500px;height:160px;background:#fff;border:1px dashed var(--border-strong);border-radius:8px;touch-action:none;cursor:crosshair;display:block"></canvas>
+          <div class="flex gap-8 mt-8"><button class="btn" id="sigClear">Clear</button><button class="btn primary" id="sigSave">Save signature</button></div>
+        </div></div>` : ""}
       ${(window.DB.isAdmin() && !viewing) ? gmailCardHtml(S.get().profile) : ""}`;
   }
   function accountDBMount(root) {
+    const cv = root.querySelector("#sigPad");
+    if (cv) {
+      const ctx = cv.getContext("2d");
+      ctx.lineWidth = 2.5; ctx.lineCap = "round"; ctx.strokeStyle = "#111";
+      let drawing = false, has = false;
+      const pos = (e) => { const r = cv.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: (t.clientX - r.left) * (cv.width / r.width), y: (t.clientY - r.top) * (cv.height / r.height) }; };
+      const start = (e) => { drawing = true; has = true; const pt = pos(e); ctx.beginPath(); ctx.moveTo(pt.x, pt.y); e.preventDefault(); };
+      const move = (e) => { if (!drawing) return; const pt = pos(e); ctx.lineTo(pt.x, pt.y); ctx.stroke(); e.preventDefault(); };
+      const end = () => { drawing = false; };
+      cv.addEventListener("mousedown", start); cv.addEventListener("mousemove", move); window.addEventListener("mouseup", end);
+      cv.addEventListener("touchstart", start, { passive: false }); cv.addEventListener("touchmove", move, { passive: false }); cv.addEventListener("touchend", end);
+      root.querySelector("#sigClear").onclick = () => { ctx.clearRect(0, 0, cv.width, cv.height); has = false; };
+      root.querySelector("#sigSave").onclick = async () => {
+        if (!has) { U.toast("Draw your signature first", "error"); return; }
+        const url = cv.toDataURL("image/png");
+        await window.DB.updateProfile(window.DB.me().id, { signature_url: url });
+        if (window.Auth) await window.Auth.reloadProfile();
+        U.toast("Signature saved", "success");
+        window.App.rerender();
+      };
+    }
     const p = window.DB.target();
     const inp = root.querySelector("#avatarInput");
     const pick = () => inp.click();
@@ -2645,6 +2673,88 @@ window.APP_CONFIG = {
   }
 
   // ---- Contracts in logged-in (Supabase) mode ----
+  const CFIELDS = ["name", "email", "phone", "address", "date", "signature"];
+  const CFLABEL = { name: "Full name", email: "Email", phone: "Phone", address: "Address", date: "Date", signature: "Signature" };
+  function fileBody(src, name) {
+    const ext = (name || "").split(".").pop().toLowerCase();
+    if (ext === "pdf" && src) return `<iframe src="${U.esc(src)}#view=FitH" style="width:100%;height:60vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`;
+    if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext) && src) return `<div style="text-align:center"><img src="${U.esc(src)}" style="max-width:100%;max-height:60vh;border-radius:8px"/></div>`;
+    return `<div class="empty"><div class="em-ico">${fileIcon(name)}</div><p>${src ? "Preview not available for this file type — use Open below." : "No document attached."}</p></div>`;
+  }
+  function openSignContract(c) {
+    const me = window.DB.me();
+    const signed = c.status === "signed";
+    const fields = (c.fields && c.fields.length) ? c.fields : ["name", "signature", "date"];
+    const vals = signed ? (c.field_values || {}) : { name: me.full_name || "", email: me.email || "", phone: me.phone || "", address: me.address || "", date: new Date().toLocaleDateString() };
+    const sig = signed ? (c.field_values && c.field_values.signature) : me.signature_url;
+    const fieldForm = fields.map((k) => {
+      if (k === "signature") return `<div class="field"><label>Signature</label>${sig ? `<img src="${U.esc(sig)}" style="max-height:70px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px"/>` : `<div class="faint">No signature on file.${signed ? "" : " Add one in My Account first."}</div>`}</div>`;
+      return `<div class="field"><label>${CFLABEL[k] || k}</label><input data-fk="${k}" value="${U.esc(vals[k] || "")}" ${signed ? "disabled" : ""}/></div>`;
+    }).join("");
+    U.modal({
+      title: signed ? c.title + " — signed" : "Review & sign: " + c.title,
+      body: `${fileBody(c.file_url, c.file_name)}<div class="mt-16"><div class="card-head" style="padding:0 0 8px"><h3>${signed ? "Submitted details" : "Complete & sign"}</h3></div>${fieldForm}</div>`,
+      footer: signed ? `<button class="btn primary" data-modal-close>Close</button>` : `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="doSign">✍ Sign & submit</button>`,
+      onMount: (card) => {
+        card.style.width = "min(900px, calc(100vw - 32px))";
+        const ds = card.querySelector("#doSign");
+        if (ds) ds.onclick = async () => {
+          if (fields.includes("signature") && !me.signature_url) { U.toast("Add your signature in My Account first", "error"); return; }
+          const fv = {};
+          card.querySelectorAll("[data-fk]").forEach((i) => (fv[i.dataset.fk] = i.value.trim()));
+          if (fields.includes("signature")) fv.signature = me.signature_url;
+          U.closeModal();
+          await window.DB.signContract(c, fv);
+          U.toast("Signed ✓ — your admin was notified", "success");
+          window.App.rerender();
+        };
+      },
+    });
+  }
+  function openContractUpload() {
+    const people = window.DB.profiles().filter((p) => p.role !== "admin");
+    U.modal({
+      title: "Upload contract",
+      body: `
+        <div class="field"><label>Contract title</label><input id="cTitle" placeholder="e.g. Employment Agreement"/></div>
+        <div class="field"><label>Assign to</label><select id="cAssign">${people.map((p) => `<option value="${p.id}">${U.esc(window.DB.displayName(p))}${p.email ? " — " + U.esc(p.email) : ""}</option>`).join("")}</select></div>
+        <div class="field-row"><div class="field"><label>Value ($)</label><input id="cValue" type="number" placeholder="0"/></div><div class="field"><label>Due date</label><input id="cDue" type="date"/></div></div>
+        <div class="field"><label>Document (PDF or image)</label><input type="file" id="cFile" accept=".pdf,image/*"/></div>
+        <div id="cPrev" class="mt-8"></div>
+        <div class="field mt-8"><label>Fields the signer must complete</label>
+          <div class="flex gap-8" style="flex-wrap:wrap">${CFIELDS.map((k) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${k}" ${["name", "signature", "date"].includes(k) ? "checked" : ""} style="margin-right:6px">${CFLABEL[k]}</label>`).join("")}</div>
+        </div>`,
+      footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="cSave">Upload & assign</button>`,
+      onMount: (card) => {
+        card.style.width = "min(820px, calc(100vw - 32px))";
+        let fileName = "", fileUrl = "";
+        card.querySelector("#cFile").onchange = (e) => {
+          const f = e.target.files[0]; if (!f) return;
+          if (f.size > 3 * 1024 * 1024) { U.toast("File too large (max ~3MB)", "error"); return; }
+          const r = new FileReader();
+          r.onload = () => { fileName = f.name; fileUrl = r.result; card.querySelector("#cPrev").innerHTML = fileBody(fileUrl, fileName); };
+          r.readAsDataURL(f);
+        };
+        card.querySelector("#cSave").onclick = async () => {
+          const title = card.querySelector("#cTitle").value.trim();
+          if (!title) { U.toast("Enter a title", "error"); return; }
+          if (!people.length) { U.toast("Add a team member first", "error"); return; }
+          const fields = [...card.querySelectorAll('input[type=checkbox]:checked')].map((x) => x.value);
+          const dueV = card.querySelector("#cDue").value;
+          const rec = {
+            title, assigned_to: card.querySelector("#cAssign").value,
+            value: Number(card.querySelector("#cValue").value) || 0, status: "draft",
+            file_name: fileName || null, file_url: fileUrl || null, fields,
+            due: dueV ? new Date(dueV).toISOString() : null,
+          };
+          U.closeModal();
+          await window.DB.addContract(rec);
+          U.toast("Contract created", "success");
+          window.App.rerender();
+        };
+      },
+    });
+  }
   function contractsDB() {
     const admin = window.DB.isAdmin();
     const list = window.DB.contracts();
@@ -2652,7 +2762,7 @@ window.APP_CONFIG = {
 
     if (!admin) {
       return `
-        <div class="page-head"><div class="ph-text"><h1>Contracts</h1><p>Documents assigned to you — review and sign.</p></div></div>
+        <div class="page-head"><div class="ph-text"><h1>Contracts</h1><p>Documents assigned to you — review, complete the fields, and sign.</p></div></div>
         <div class="grid cols-2">
           ${list.length ? list.map((c) => `
             <div class="card card-pad">
@@ -2667,7 +2777,7 @@ window.APP_CONFIG = {
               </div>
               <div class="flex between center mt-16">
                 <span class="faint" style="font-size:12px">${c.status === "signed" ? "Signed " + U.ago(c.signed_at) : "Awaiting your signature"}</span>
-                ${c.status === "signed" ? `<span class="badge b-signed">Signed</span>` : `<button class="btn primary sm" data-sign="${c.id}">✍ Sign</button>`}
+                <button class="btn ${c.status === "signed" ? "" : "primary"} sm" data-reviewsign="${c.id}">${c.status === "signed" ? "View" : "Review & sign"}</button>
               </div>
             </div>`).join("")
             : `<div style="grid-column:1/-1">${U.empty("📄", "No contracts assigned to you yet.")}</div>`}
@@ -2677,7 +2787,7 @@ window.APP_CONFIG = {
     const totalSigned = list.filter((c) => c.status === "signed").reduce((s, c) => s + (Number(c.value) || 0), 0);
     return `
       <div class="page-head">
-        <div class="ph-text"><h1>Contracts</h1><p>Upload a contract, assign it to an employee, and they sign it in their account.</p></div>
+        <div class="ph-text"><h1>Contracts</h1><p>Upload a document, preview it, choose the fields the signer fills, and assign it.</p></div>
         <div class="ph-actions"><button class="btn primary" id="addContract">⬆ Upload contract</button></div>
       </div>
       <div class="grid cols-4">
@@ -2698,8 +2808,9 @@ window.APP_CONFIG = {
               <td class="muted nowrap">${c.sent_at ? U.dateShort(c.sent_at) : "—"}</td>
               <td class="muted nowrap">${c.signed_at ? U.dateShort(c.signed_at) : "—"}</td>
               <td><div class="flex gap-8 nowrap">
+                ${c.file_url ? `<button class="btn sm" data-preview="${c.id}">Preview</button>` : ""}
+                ${c.status === "signed" ? `<button class="btn sm" data-viewsigned="${c.id}">View signed</button>` : ""}
                 ${(c.status === "draft" || c.status === "expired") ? `<button class="btn sm" data-invite="${c.id}">✉️ Invite</button>` : ""}
-                ${c.status === "invited" ? `<button class="btn sm" data-marksigned="${c.id}">Mark signed</button>` : ""}
                 <button class="btn sm ghost" data-del="${c.id}" style="color:var(--danger)">Delete</button>
               </div></td>
             </tr>`).join("")
@@ -2707,48 +2818,19 @@ window.APP_CONFIG = {
           </tbody></table></div></div>`;
   }
   function contractsDBMount(root) {
-    root.querySelectorAll("[data-sign]").forEach((b) => (b.onclick = () =>
-      U.confirm("Sign this contract? Your admin will be notified.", async () => {
-        const c = window.DB.contracts().find((x) => x.id === b.dataset.sign);
-        await window.DB.signContract(c);
-        U.toast("Signed ✓ — your admin was notified", "success");
-        window.App.rerender();
-      }, { danger: false, yes: "Sign" })));
+    const find = (id) => window.DB.contracts().find((x) => x.id === id);
+    root.querySelectorAll("[data-reviewsign]").forEach((b) => (b.onclick = () => openSignContract(find(b.dataset.reviewsign))));
+    root.querySelectorAll("[data-viewsigned]").forEach((b) => (b.onclick = () => openSignContract(find(b.dataset.viewsigned))));
+    root.querySelectorAll("[data-preview]").forEach((b) => (b.onclick = () => {
+      const c = find(b.dataset.preview);
+      U.modal({ title: c.title, body: fileBody(c.file_url, c.file_name), footer: `${c.file_url ? `<a class="btn" href="${U.esc(c.file_url)}" target="_blank" rel="noopener">↗ Open</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`, onMount: (card) => { card.style.width = "min(900px, calc(100vw - 32px))"; } });
+    }));
 
     const addBtn = root.querySelector("#addContract");
     if (!addBtn) return;
-    addBtn.onclick = () => {
-      const people = window.DB.profiles();
-      U.modal({
-        title: "Upload contract",
-        body: `
-          <div class="field"><label>Contract title</label><input id="cTitle" placeholder="e.g. Employment Agreement"/></div>
-          <div class="field"><label>Assign to</label><select id="cAssign">${people.map((p) => `<option value="${p.id}">${U.esc(window.DB.displayName(p))}${p.email ? " — " + U.esc(p.email) : ""}</option>`).join("")}</select></div>
-          <div class="field-row"><div class="field"><label>Value ($)</label><input id="cValue" type="number" placeholder="0"/></div><div class="field"><label>Due date</label><input id="cDue" type="date"/></div></div>
-          <div class="field"><label>File name (optional)</label><input id="cFile" placeholder="contract.pdf"/></div>`,
-        footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="cSave">Upload & assign</button>`,
-        onMount: (card) => {
-          card.querySelector("#cSave").onclick = async () => {
-            const title = card.querySelector("#cTitle").value.trim();
-            if (!title) { U.toast("Enter a title", "error"); return; }
-            if (!people.length) { U.toast("Add a team member first", "error"); return; }
-            const dueV = card.querySelector("#cDue").value;
-            const rec = {
-              title, assigned_to: card.querySelector("#cAssign").value,
-              value: Number(card.querySelector("#cValue").value) || 0, status: "draft",
-              file_name: card.querySelector("#cFile").value.trim() || null,
-              due: dueV ? new Date(dueV).toISOString() : null,
-            };
-            U.closeModal();
-            await window.DB.addContract(rec);
-            U.toast("Contract created", "success");
-            window.App.rerender();
-          };
-        },
-      });
-    };
+    addBtn.onclick = openContractUpload;
     root.querySelectorAll("[data-invite]").forEach((b) => (b.onclick = () => {
-      const c = window.DB.contracts().find((x) => x.id === b.dataset.invite);
+      const c = find(b.dataset.invite);
       const p = window.DB.profile(c.assigned_to);
       if (!p || !p.email) { U.toast("That member has no email on file", "error"); return; }
       const me = window.DB.me(); const url = location.origin + location.pathname;
@@ -2756,10 +2838,6 @@ window.APP_CONFIG = {
       const body = encodeURIComponent(`Hi ${window.DB.displayName(p)},\n\nYou have a contract to review and sign: "${c.title}".\n\nSign in and open Contracts:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`);
       window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(p.email)}&su=${su}&body=${body}`, "_blank");
       window.DB.updateContract(c.id, { status: "invited", sent_at: new Date().toISOString() }).then(() => { U.toast("Invite opened in Gmail", "success"); window.App.rerender(); });
-    }));
-    root.querySelectorAll("[data-marksigned]").forEach((b) => (b.onclick = async () => {
-      await window.DB.updateContract(b.dataset.marksigned, { status: "signed", signed_at: new Date().toISOString() });
-      U.toast("Marked signed", "success"); window.App.rerender();
     }));
     root.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () =>
       U.confirm("Delete this contract?", async () => { await window.DB.removeContract(b.dataset.del); U.toast("Deleted"); window.App.rerender(); })));
