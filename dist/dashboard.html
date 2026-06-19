@@ -2063,7 +2063,7 @@ window.APP_CONFIG = {
           <p class="muted" style="margin-bottom:10px">Draw your signature — it's applied automatically when you sign contracts.</p>
           ${p.signature_url ? `<div style="margin-bottom:10px"><span class="faint" style="font-size:12px">Current:</span><br><img src="${U.esc(p.signature_url)}" style="max-height:80px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px"/></div>` : ""}
           <canvas id="sigPad" width="500" height="160" style="width:100%;max-width:500px;height:160px;background:#fff;border:1px dashed var(--border-strong);border-radius:8px;touch-action:none;cursor:crosshair;display:block"></canvas>
-          <div class="flex gap-8 mt-8"><button class="btn" id="sigClear">Clear</button><button class="btn primary" id="sigSave">Save signature</button></div>
+          <div class="flex gap-8 mt-8" style="flex-wrap:wrap"><button class="btn" id="sigClear">Clear</button><button class="btn" id="sigUpload">⬆ Upload image</button><button class="btn primary" id="sigSave">Save drawn signature</button><input type="file" id="sigFile" accept="image/*" style="display:none"/></div>
         </div></div>` : ""}
       ${(window.DB.isAdmin() && !viewing) ? gmailCardHtml(S.get().profile) : ""}`;
   }
@@ -2088,6 +2088,29 @@ window.APP_CONFIG = {
         U.toast("Signature saved", "success");
         window.App.rerender();
       };
+      const sf = root.querySelector("#sigFile"), su = root.querySelector("#sigUpload");
+      if (su && sf) {
+        su.onclick = () => sf.click();
+        sf.onchange = (e) => {
+          const f = e.target.files[0]; if (!f) return;
+          const rd = new FileReader();
+          rd.onload = () => {
+            const img = new Image();
+            img.onload = async () => {
+              const max = 500, sc = Math.min(1, max / img.width);
+              const cw = Math.round(img.width * sc), ch = Math.round(img.height * sc);
+              const cn = document.createElement("canvas"); cn.width = cw; cn.height = ch;
+              cn.getContext("2d").drawImage(img, 0, 0, cw, ch);
+              await window.DB.updateProfile(window.DB.me().id, { signature_url: cn.toDataURL("image/png") });
+              if (window.Auth) await window.Auth.reloadProfile();
+              U.toast("Signature uploaded", "success");
+              window.App.rerender();
+            };
+            img.src = rd.result;
+          };
+          rd.readAsDataURL(f);
+        };
+      }
     }
     const p = window.DB.target();
     const inp = root.querySelector("#avatarInput");
