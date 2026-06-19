@@ -1112,6 +1112,16 @@ window.APP_CONFIG = {
   DB.adminCreateUser = (p) => callAdmin("create_user", p);
   DB.adminUpdateUser = (id, p) => callAdmin("update_user", { id, ...p });
 
+  // send an email server-side via Resend (no user interaction)
+  DB.sendEmail = async ({ to, subject, html, text }) => {
+    const { data } = await c().auth.getSession();
+    const token = data.session && data.session.access_token;
+    const r = await fetch("/api/email", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + (token || "") }, body: JSON.stringify({ to, subject, html, text }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || (r.status === 404 ? "Email API not deployed (use your Vercel site)" : "HTTP " + r.status));
+    return j;
+  };
+
   // ---- notifications ----
   DB.notifications = () => DB.cache.notifications;
   DB.unreadCount = () => DB.cache.notifications.filter((n) => !n.read).length;
@@ -3208,15 +3218,15 @@ window.APP_CONFIG = {
       const subject = `Please sign: ${c.title}`;
       const text = `Hi ${window.DB.displayName(p)},\n\nYou have a contract to review and sign: "${c.title}".\n\nSign in and open Contracts:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`;
       const markSent = async () => { await window.DB.updateContract(c.id, { status: "invited", sent_at: new Date().toISOString() }); window.App.rerender(); };
-      // Try to send the email automatically from the admin's Gmail; fall back to opening a compose window.
+      // Send automatically from the server (Resend); fall back to a Gmail compose window only if that's not set up.
       try {
-        await window.Gmail.sendEmail(p.email, subject, text);
+        await window.DB.sendEmail({ to: p.email, subject, text });
         await markSent();
         U.toast("Email sent to " + p.email, "success");
       } catch (e) {
         window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(p.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
         await markSent();
-        U.toast(e && e.message === "NO_CLIENT_ID" ? "Opened Gmail to send (connect Gmail in My Account to auto-send)" : "Opened Gmail to send", "success");
+        U.toast("Auto-send not set up (" + (e.message || e) + ") — opened Gmail instead", "");
       }
     }));
     root.querySelectorAll("[data-del]").forEach((b) => (b.onclick = () =>
@@ -3274,18 +3284,23 @@ window.APP_CONFIG = {
     root.querySelector("#invitePeople").onclick = () => {
       U.formModal({
         title: "Invite someone",
-        submitLabel: "Open Gmail invite",
+        submitLabel: "Send invite",
         fields: [
           { name: "email", label: "Their email", type: "email", required: true, half: true },
           { name: "name", label: "Their name", half: true },
         ],
-        onSubmit: (data) => {
+        onSubmit: async (data) => {
           const me = window.DB.me();
           const url = location.origin + location.pathname;
-          const su = encodeURIComponent(`${window.DB.displayName(me)} invited you to the Workspace dashboard`);
-          const body = encodeURIComponent(`Hi ${data.name || ""},\n\nYou've been invited to join the team Workspace dashboard.\n\nCreate your account here:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`);
-          window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(data.email)}&su=${su}&body=${body}`, "_blank");
-          U.toast("Invite opened in Gmail — hit Send", "success");
+          const subject = `${window.DB.displayName(me)} invited you to the Workspace dashboard`;
+          const text = `Hi ${data.name || ""},\n\nYou've been invited to join the team Workspace dashboard.\n\nCreate your account here:\n${url}\n\nThanks,\n${window.DB.displayName(me)}`;
+          try {
+            await window.DB.sendEmail({ to: data.email, subject, text });
+            U.toast("Invite sent to " + data.email, "success");
+          } catch (e) {
+            window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(data.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`, "_blank");
+            U.toast("Auto-send not set up (" + (e.message || e) + ") — opened Gmail instead", "");
+          }
         },
       });
     };

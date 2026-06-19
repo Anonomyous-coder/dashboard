@@ -117,6 +117,16 @@
   DB.adminCreateUser = (p) => callAdmin("create_user", p);
   DB.adminUpdateUser = (id, p) => callAdmin("update_user", { id, ...p });
 
+  // send an email server-side via Resend (no user interaction)
+  DB.sendEmail = async ({ to, subject, html, text }) => {
+    const { data } = await c().auth.getSession();
+    const token = data.session && data.session.access_token;
+    const r = await fetch("/api/email", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + (token || "") }, body: JSON.stringify({ to, subject, html, text }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || (r.status === 404 ? "Email API not deployed (use your Vercel site)" : "HTTP " + r.status));
+    return j;
+  };
+
   // ---- notifications ----
   DB.notifications = () => DB.cache.notifications;
   DB.unreadCount = () => DB.cache.notifications.filter((n) => !n.read).length;
