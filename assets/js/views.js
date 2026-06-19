@@ -651,31 +651,59 @@
   /* =========================================================
      7. SOPs (document hosting)
   ========================================================= */
+  const KNOWN_DOCS = {
+    "onboarding-checklist.pdf": "assets/docs/onboarding-checklist.pdf",
+    "expense-policy.pdf": "assets/docs/expense-policy.pdf",
+    "brand-guide.pdf": "assets/docs/brand-guide.pdf",
+  };
+  const docSrc = (s) => (s && (s.dataUrl || s.url || KNOWN_DOCS[(s.fileName || "").toLowerCase()])) || "";
+  let sopSelected = null;
   Views.sops = {
     title: "SOPs",
     render() {
       const d = S.get();
+      const docs = d.sops;
+      const selected = docs.find((s) => s.id === sopSelected) || docs.find((s) => docSrc(s)) || docs[0] || null;
+      const src = docSrc(selected);
+      const isPdf = selected && /\.pdf$/i.test(selected.fileName || "") && src;
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>SOPs & Documents</h1><p>Upload, host, and version your standard operating procedures.</p></div>
+        <div class="ph-text"><h1>SOPs & Documents</h1><p>Upload, host, and read your standard operating procedures.</p></div>
         <div class="ph-actions"><button class="btn primary" id="uploadDoc">⬆ Upload document</button></div>
       </div>
 
-      <div class="dropzone mt-8" id="dropzone">
+      <div class="card">
+        <div class="card-head">
+          <h3>${selected ? U.esc(selected.title) : "Document viewer"}</h3>
+          <div class="ch-actions">
+            ${selected ? `<span class="chip">${U.esc(selected.category || "")}</span><span class="chip">${U.esc(selected.version || "")}</span>` : ""}
+            ${src ? `<a class="btn sm" href="${U.esc(src)}" target="_blank" rel="noopener">↗ Open</a>` : ""}
+          </div>
+        </div>
+        <div class="card-pad">
+          ${isPdf
+            ? `<iframe src="${U.esc(src)}#view=FitH" title="${U.esc(selected.title)}" style="width:100%;height:620px;border:1px solid var(--border);border-radius:10px;background:#fff"></iframe>`
+            : selected
+              ? `<div class="empty"><div class="em-ico">${fileIcon(selected.fileName)}</div><p>Inline preview isn't available for this file type${selected.fileName ? ` (${U.esc((selected.fileName.split(".").pop() || "").toUpperCase())})` : ""}.${src ? ` <a href="${U.esc(src)}" target="_blank" rel="noopener" style="color:var(--primary)">Open in a new tab</a>.` : " Re-upload the file to read it here."}</p></div>`
+              : U.empty("📄", "No documents yet. Upload your first SOP to read it here.")}
+        </div>
+      </div>
+
+      <div class="dropzone mt-24" id="dropzone">
         <div class="dz-ico">📁</div>
         <div><strong>Drag & drop files here</strong> or click to browse</div>
-        <div class="faint" style="font-size:12px;margin-top:4px">PDF, DOCX, XLSX — stored locally in this workspace</div>
+        <div class="faint" style="font-size:12px;margin-top:4px">PDFs preview inline · stored locally in this workspace</div>
         <input type="file" id="fileInput" multiple style="display:none"/>
       </div>
 
       <div class="card mt-24">
-        <div class="card-head"><h3>Document library</h3><div class="ch-actions"><span class="chip">${d.sops.length} files</span></div></div>
+        <div class="card-head"><h3>Document library</h3><div class="ch-actions"><span class="chip">${docs.length} files</span></div></div>
         <div class="table-wrap">
           <table class="tbl">
             <thead><tr><th>Document</th><th>Category</th><th>Version</th><th>Size</th><th>Uploaded by</th><th>Date</th><th></th></tr></thead>
             <tbody>
-              ${d.sops.length ? d.sops.map((s) => `
-                <tr>
+              ${docs.length ? docs.map((s) => `
+                <tr style="${selected && s.id === selected.id ? "background:var(--primary-soft)" : ""}">
                   <td><div class="flex gap-12 center"><div class="li-ico bg-info">${fileIcon(s.fileName)}</div>
                     <div><div class="row-main">${U.esc(s.title)}</div><div class="row-sub">${U.esc(s.fileName)}</div></div></div></td>
                   <td><span class="chip">${U.esc(s.category)}</span></td>
@@ -683,7 +711,13 @@
                   <td class="muted nowrap">${U.fileSize(s.size)}</td>
                   <td class="muted">${U.esc(s.uploadedBy)}</td>
                   <td class="muted nowrap">${U.dateShort(s.uploaded)}</td>
-                  <td>${rowActions(s.id, true)}</td>
+                  <td>
+                    <div class="flex gap-8 nowrap">
+                      ${docSrc(s) ? `<button class="btn sm" data-view="${s.id}">View</button>` : ""}
+                      <button class="btn sm ghost" data-act="edit" data-id="${s.id}">Edit</button>
+                      <button class="btn sm ghost" data-act="del" data-id="${s.id}" style="color:var(--danger)">Delete</button>
+                    </div>
+                  </td>
                 </tr>`).join("")
                 : `<tr><td colspan="7">${U.empty("📄", "No documents yet. Upload your first SOP.")}</td></tr>`}
             </tbody>
@@ -695,13 +729,26 @@
       const fileInput = root.querySelector("#fileInput");
       const dz = root.querySelector("#dropzone");
       const addFiles = (files) => {
-        [...files].forEach((f) =>
-          S.add("sops", {
+        const arr = [...files]; if (!arr.length) return;
+        let pending = arr.length, firstId = null;
+        arr.forEach((f) => {
+          const base = {
             title: f.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
             category: "Uncategorized", version: "v1.0", fileName: f.name, size: f.size,
             uploadedBy: S.get().profile.name, uploaded: new Date().toISOString(),
-          }));
-        if (files.length) { U.toast(files.length + " file(s) uploaded", "success"); window.App.rerender(); }
+          };
+          const finish = (extra) => {
+            const rec = S.add("sops", { ...base, ...extra });
+            if (!firstId) firstId = rec.id;
+            if (--pending === 0) { sopSelected = firstId; U.toast(arr.length + " file(s) uploaded", "success"); window.App.rerender(); }
+          };
+          if (/\.pdf$/i.test(f.name) && f.size < 2.6 * 1024 * 1024) {
+            const r = new FileReader();
+            r.onload = () => finish({ dataUrl: r.result });
+            r.onerror = () => finish({});
+            r.readAsDataURL(f);
+          } else finish({});
+        });
       };
       dz.onclick = () => fileInput.click();
       fileInput.onchange = (e) => addFiles(e.target.files);
@@ -709,6 +756,7 @@
       dz.ondragleave = () => dz.classList.remove("drag");
       dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("drag"); addFiles(e.dataTransfer.files); };
 
+      root.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { sopSelected = b.dataset.view; window.App.rerender(); window.scrollTo(0, 0); }));
       root.querySelector("#uploadDoc").onclick = () => openDocForm(null);
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => openDocForm(S.find("sops", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>

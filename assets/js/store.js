@@ -52,10 +52,10 @@
       gmailSyncedIds: [],
       // ---- Workspace ----
       sops: [
-        { id: uid(), title: "Employee Onboarding Checklist", category: "HR", version: "v2.1", fileName: "onboarding-checklist.pdf", size: 248320, uploadedBy: "Noah Morgan", uploaded: daysAgo(9) },
-        { id: uid(), title: "Expense Reimbursement Policy", category: "Finance", version: "v1.4", fileName: "expense-policy.pdf", size: 192040, uploadedBy: "Jordan Lee", uploaded: daysAgo(21) },
+        { id: uid(), title: "Employee Onboarding Checklist", category: "HR", version: "v2.1", fileName: "onboarding-checklist.pdf", url: "assets/docs/onboarding-checklist.pdf", size: 248320, uploadedBy: "Noah Morgan", uploaded: daysAgo(9) },
+        { id: uid(), title: "Expense Reimbursement Policy", category: "Finance", version: "v1.4", fileName: "expense-policy.pdf", url: "assets/docs/expense-policy.pdf", size: 192040, uploadedBy: "Jordan Lee", uploaded: daysAgo(21) },
+        { id: uid(), title: "Brand Style Guide", category: "Marketing", version: "v1.0", fileName: "brand-guide.pdf", url: "assets/docs/brand-guide.pdf", size: 1820400, uploadedBy: "Sam Rivera", uploaded: daysAgo(45) },
         { id: uid(), title: "Incident Response Runbook", category: "Operations", version: "v3.0", fileName: "incident-runbook.docx", size: 410112, uploadedBy: "Noah Morgan", uploaded: daysAgo(3) },
-        { id: uid(), title: "Brand Style Guide", category: "Marketing", version: "v1.0", fileName: "brand-guide.pdf", size: 1820400, uploadedBy: "Sam Rivera", uploaded: daysAgo(45) },
       ],
       contracts: [
         { id: uid(), title: "Employment Agreement", assignedTo: "Jordan Lee", assignedEmail: "jordan.lee@email.com", party: "Jordan Lee", fileName: "employment-agreement.pdf", value: 0, status: "signed", sent: daysAgo(20), due: daysAgo(6) },
