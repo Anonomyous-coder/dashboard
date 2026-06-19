@@ -1653,10 +1653,8 @@
         <div class="field-row"><div class="field"><label>Value ($)</label><input id="cValue" type="number" placeholder="0"/></div><div class="field"><label>Due date</label><input id="cDue" type="date"/></div></div>
         <div class="field"><label>Document (PDF or image)</label><input type="file" id="cFile" accept=".pdf,image/*"/></div>
         <div id="cPrev" class="mt-8"></div>
-        <div class="field mt-8"><label>Fields the signer must complete</label>
-          <div class="flex gap-8" style="flex-wrap:wrap">${CFIELDS.map((k) => `<label class="chip" style="cursor:pointer"><input type="checkbox" value="${k}" ${["name", "signature", "date"].includes(k) ? "checked" : ""} style="margin-right:6px">${CFLABEL[k]}</label>`).join("")}</div>
-        </div>`,
-      footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="cSave">Upload & assign</button>`,
+        <p class="faint" style="font-size:12px">After uploading, you'll place the signer's fields directly on the document.</p>`,
+      footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="cSave">Upload & place fields</button>`,
       onMount: (card) => {
         card.style.width = "min(820px, calc(100vw - 32px))";
         let fileName = "", fileUrl = "";
@@ -1671,18 +1669,20 @@
           const title = card.querySelector("#cTitle").value.trim();
           if (!title) { U.toast("Enter a title", "error"); return; }
           if (!people.length) { U.toast("Add a team member first", "error"); return; }
-          const fields = [...card.querySelectorAll('input[type=checkbox]:checked')].map((x) => x.value);
           const dueV = card.querySelector("#cDue").value;
           const rec = {
             title, assigned_to: card.querySelector("#cAssign").value,
             value: Number(card.querySelector("#cValue").value) || 0, status: "draft",
-            file_name: fileName || null, file_url: fileUrl || null, fields,
+            file_name: fileName || null, file_url: fileUrl || null, fields: [],
             due: dueV ? new Date(dueV).toISOString() : null,
           };
           U.closeModal();
           await window.DB.addContract(rec);
-          U.toast("Contract created", "success");
+          const created = window.DB.contracts()[0];
           window.App.rerender();
+          if (created && created.file_url && window.Esign) {
+            Esign.openEditor(created, async (fields) => { await window.DB.updateContract(created.id, { fields }); U.toast("Contract ready — fields placed", "success"); window.App.rerender(); });
+          } else U.toast("Contract created", "success");
         };
       },
     });
@@ -1740,8 +1740,8 @@
               <td class="muted nowrap">${c.sent_at ? U.dateShort(c.sent_at) : "—"}</td>
               <td class="muted nowrap">${c.signed_at ? U.dateShort(c.signed_at) : "—"}</td>
               <td><div class="flex gap-8 nowrap">
-                ${c.file_url ? `<button class="btn sm" data-preview="${c.id}">Preview</button>` : ""}
-                ${c.status === "signed" ? `<button class="btn sm" data-viewsigned="${c.id}">View signed</button>` : ""}
+                ${c.file_url ? `<button class="btn sm" data-placefields="${c.id}">Place fields</button>` : ""}
+                ${c.status === "signed" ? `<button class="btn sm" data-viewsigned="${c.id}">View signed</button>` : (c.file_url ? `<button class="btn sm ghost" data-preview="${c.id}">Preview</button>` : "")}
                 ${(c.status === "draft" || c.status === "expired") ? `<button class="btn sm" data-invite="${c.id}">✉️ Invite</button>` : ""}
                 <button class="btn sm ghost" data-del="${c.id}" style="color:var(--danger)">Delete</button>
               </div></td>
@@ -1751,8 +1751,21 @@
   }
   function contractsDBMount(root) {
     const find = (id) => window.DB.contracts().find((x) => x.id === id);
-    root.querySelectorAll("[data-reviewsign]").forEach((b) => (b.onclick = () => openSignContract(find(b.dataset.reviewsign))));
-    root.querySelectorAll("[data-viewsigned]").forEach((b) => (b.onclick = () => openSignContract(find(b.dataset.viewsigned))));
+    const placed = (c) => window.Esign && window.Esign.hasPlaced(c);
+    root.querySelectorAll("[data-reviewsign]").forEach((b) => (b.onclick = () => {
+      const c = find(b.dataset.reviewsign);
+      if (c.status === "signed") { placed(c) ? Esign.openViewer(c) : openSignContract(c); return; }
+      if (placed(c)) Esign.openSigner(c, window.DB.me(), async (vals) => { await window.DB.signContract(c, vals); U.toast("Signed ✓ — your admin was notified", "success"); window.App.rerender(); });
+      else openSignContract(c);
+    }));
+    root.querySelectorAll("[data-viewsigned]").forEach((b) => (b.onclick = () => {
+      const c = find(b.dataset.viewsigned);
+      placed(c) ? Esign.openViewer(c) : openSignContract(c);
+    }));
+    root.querySelectorAll("[data-placefields]").forEach((b) => (b.onclick = () => {
+      const c = find(b.dataset.placefields);
+      Esign.openEditor(c, async (fields) => { await window.DB.updateContract(c.id, { fields }); U.toast("Fields saved", "success"); window.App.rerender(); });
+    }));
     root.querySelectorAll("[data-preview]").forEach((b) => (b.onclick = () => {
       const c = find(b.dataset.preview);
       U.modal({ title: c.title, body: fileBody(c.file_url, c.file_name), footer: `${c.file_url ? `<a class="btn" href="${U.esc(c.file_url)}" target="_blank" rel="noopener">↗ Open</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`, onMount: (card) => { card.style.width = "min(900px, calc(100vw - 32px))"; } });
