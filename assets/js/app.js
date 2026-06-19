@@ -50,8 +50,16 @@
       const view = window.Views[current] || window.Views.dashboard;
       document.getElementById("pageTitle").textContent = view.title;
       const content = document.getElementById("content");
-      content.innerHTML = view.render();
+      let banner = "";
+      if (window.DB && window.DB.active && window.DB.viewAs) {
+        const t = window.DB.target();
+        banner = `<div class="card card-pad" style="margin-bottom:16px;border-color:var(--warn);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div>👁 <strong>Viewing ${U.esc(window.DB.displayName(t))}'s account</strong> <span class="faint">(admin)</span></div>
+          <button class="btn sm" id="exitViewAs">Exit view</button></div>`;
+      }
+      content.innerHTML = banner + view.render();
       view.mount?.(content);
+      if (banner) { const b = document.getElementById("exitViewAs"); if (b) b.onclick = () => { window.DB.viewAs = null; this.go("team"); }; }
       this.renderNav();
     },
     renderNav() {
@@ -221,6 +229,7 @@
       const loggedIn = await window.Auth.init();
       if (!loggedIn) { renderAuth(); return; }
       addSignOut();
+      if (window.DB) await window.DB.load();
     }
 
     // clock pill click → time tracker

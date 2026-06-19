@@ -1,0 +1,74 @@
+/* ============================================================
+   DB — Supabase data layer (active only when logged in).
+   Loads shared data into memory after auth; views read synchronously
+   from the cache and call async mutators that re-fetch + re-render.
+   ============================================================ */
+(function () {
+  const A = window.Auth;
+  const DB = {
+    active: false,
+    viewAs: null, // admin "view as member": a profile id being inspected
+    cache: { profiles: [], time_entries: [], contracts: [], notifications: [] },
+  };
+
+  const c = () => A.client();
+  DB.me = () => (A && A.profile());
+  DB.isAdmin = () => !!(A && A.isAdmin());
+  DB.targetId = () => DB.viewAs || (DB.me() && DB.me().id);
+  DB.target = () => DB.cache.profiles.find((p) => p.id === DB.targetId()) || DB.me();
+  DB.displayName = (p) => (p ? (p.full_name || p.email || "User") : "User");
+
+  DB.load = async function () {
+    if (!(A && A.enabled && A.user())) return;
+    DB.active = true;
+    const [pf, te, ct, nt] = await Promise.all([
+      c().from("profiles").select("*").order("created_at", { ascending: true }),
+      c().from("time_entries").select("*").order("clock_in", { ascending: false }),
+      c().from("contracts").select("*").order("created_at", { ascending: false }),
+      c().from("notifications").select("*").order("created_at", { ascending: false }),
+    ]);
+    DB.cache.profiles = pf.data || [];
+    DB.cache.time_entries = te.data || [];
+    DB.cache.contracts = ct.data || [];
+    DB.cache.notifications = nt.data || [];
+  };
+  DB.reload = DB.load;
+
+  // ---- profiles ----
+  DB.profiles = () => DB.cache.profiles;
+  DB.profile = (id) => DB.cache.profiles.find((p) => p.id === id);
+  DB.updateProfile = async (id, patch) => { await c().from("profiles").update(patch).eq("id", id); await DB.load(); };
+  DB.removeProfile = async (id) => { await c().from("profiles").delete().eq("id", id); await DB.load(); };
+
+  // ---- time entries ----
+  DB.timeEntries = () => DB.cache.time_entries;
+  DB.activeEntryFor = (uid) => DB.cache.time_entries.find((e) => e.user_id === uid && !e.clock_out);
+  DB.clockIn = async (uid, project) => { await c().from("time_entries").insert({ user_id: uid, project: project || "General" }); await DB.load(); };
+  DB.clockOut = async (entryId) => { await c().from("time_entries").update({ clock_out: new Date().toISOString() }).eq("id", entryId); await DB.load(); };
+  DB.removeTimeEntry = async (id) => { await c().from("time_entries").delete().eq("id", id); await DB.load(); };
+
+  // ---- contracts ----
+  DB.contracts = () => DB.cache.contracts;
+  DB.addContract = async (rec) => { rec.created_by = DB.me().id; await c().from("contracts").insert(rec); await DB.load(); };
+  DB.updateContract = async (id, patch) => { await c().from("contracts").update(patch).eq("id", id); await DB.load(); };
+  DB.removeContract = async (id) => { await c().from("contracts").delete().eq("id", id); await DB.load(); };
+  DB.signContract = async (ct) => {
+    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString() }).eq("id", ct.id);
+    const me = DB.me();
+    const admins = DB.cache.profiles.filter((p) => p.role === "admin");
+    for (const a of admins) {
+      await c().from("notifications").insert({ user_id: a.id, type: "contract_signed", message: `${DB.displayName(me)} signed "${ct.title}"` });
+    }
+    await DB.load();
+  };
+
+  // ---- notifications ----
+  DB.notifications = () => DB.cache.notifications;
+  DB.unreadCount = () => DB.cache.notifications.filter((n) => !n.read).length;
+  DB.markAllRead = async () => {
+    const ids = DB.cache.notifications.filter((n) => !n.read).map((n) => n.id);
+    if (ids.length) { await c().from("notifications").update({ read: true }).in("id", ids); await DB.load(); }
+  };
+
+  window.DB = DB;
+})();

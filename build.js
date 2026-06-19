@@ -2,7 +2,7 @@
 const fs = require("fs");
 let html = fs.readFileSync("index.html", "utf8");
 const css = fs.readFileSync("assets/css/style.css", "utf8");
-const order = ["config", "store", "ui", "gmail", "auth", "views", "app"];
+const order = ["config", "store", "ui", "gmail", "auth", "db", "views", "app"];
 const js = order.map((f) => fs.readFileSync("assets/js/" + f + ".js", "utf8")).join("\n");
 html = html.replace(/<link rel="stylesheet"[^>]*>/, "<style>\n" + css + "\n</style>");
 html = html.replace(/<link rel="preconnect"[^>]*>\n?/, "");
