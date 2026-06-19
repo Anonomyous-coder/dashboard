@@ -1135,6 +1135,35 @@ window.APP_CONFIG = {
     return pages;
   }
 
+  // drag-to-move + corner-resize for a placed field (updates f.x/y/w/h in %)
+  function makeInteractive(el, f, pg) {
+    el.style.cursor = "move";
+    el.style.touchAction = "none";
+    const handle = document.createElement("div");
+    handle.style.cssText = "position:absolute;right:-7px;bottom:-7px;width:15px;height:15px;background:#2dd4ff;border:2px solid #fff;border-radius:3px;cursor:nwse-resize;touch-action:none;z-index:2";
+    el.appendChild(handle);
+    let mode = null, sx = 0, sy = 0, ox = 0, oy = 0, ow = 0, oh = 0, rect = null;
+    const onMove = (e) => {
+      if (!mode) return;
+      const dx = ((e.clientX - sx) / rect.width) * 100, dy = ((e.clientY - sy) / rect.height) * 100;
+      if (mode === "move") {
+        f.x = Math.max(0, Math.min(100 - f.w, ox + dx)); f.y = Math.max(0, Math.min(100 - f.h, oy + dy));
+        el.style.left = f.x + "%"; el.style.top = f.y + "%";
+      } else {
+        f.w = Math.max(4, Math.min(100 - f.x, ow + dx)); f.h = Math.max(2, Math.min(100 - f.y, oh + dy));
+        el.style.width = f.w + "%"; el.style.height = f.h + "%";
+      }
+    };
+    const onUp = () => { mode = null; window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    const start = (e, m) => {
+      mode = m; sx = e.clientX; sy = e.clientY; ox = f.x; oy = f.y; ow = f.w; oh = f.h; rect = pg.getBoundingClientRect();
+      e.preventDefault(); e.stopPropagation();
+      window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp);
+    };
+    el.addEventListener("pointerdown", (e) => { if (e.target.closest("[data-rm]") || e.target === handle) return; start(e, "move"); });
+    handle.addEventListener("pointerdown", (e) => start(e, "resize"));
+  }
+
   // ---- Admin: place fields ----
   Esign.openEditor = function (c, onSave) {
     let fields = (c.fields || []).filter((f) => f && f.type && typeof f.x === "number").map((f) => ({ ...f }));
@@ -1157,7 +1186,7 @@ window.APP_CONFIG = {
           tools.forEach((b) => (b.style.cssText = b.dataset.type === active
             ? "background:var(--primary);color:#04121c;border-color:var(--primary);cursor:pointer;font-weight:700"
             : "cursor:pointer"));
-          if (hint) hint.textContent = active ? `Click once on the document to drop the “${TYPES[active]}” field.` : "Pick a field above, then click on the document to place it.";
+          if (hint) hint.textContent = active ? `Click once on the document to drop the “${TYPES[active]}” field.` : "Pick a field above and click to place it. Drag a field to move it; drag its corner to resize.";
         };
         tools.forEach((b) => (b.onclick = () => { active = (active === b.dataset.type ? null : b.dataset.type); paint(); }));
         active = null; paint();
@@ -1168,9 +1197,10 @@ window.APP_CONFIG = {
             const el = document.createElement("div");
             el.className = "esf";
             el.style.cssText = `position:absolute;left:${f.x}%;top:${f.y}%;width:${f.w}%;height:${f.h}%;background:rgba(45,212,255,.25);border:1px solid #2dd4ff;border-radius:4px;font-size:11px;color:#04121c;display:flex;align-items:center;justify-content:center;font-weight:700`;
-            el.innerHTML = `${TYPES[f.type] || f.type}<span data-rm style="position:absolute;top:-9px;right:-9px;background:#ff4d5e;color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;cursor:pointer;font-size:11px">✕</span>`;
+            el.innerHTML = `<span style="pointer-events:none">${TYPES[f.type] || f.type}</span><span data-rm style="position:absolute;top:-9px;right:-9px;background:#ff4d5e;color:#fff;border-radius:50%;width:18px;height:18px;line-height:18px;text-align:center;cursor:pointer;font-size:11px;z-index:2">✕</span>`;
             el.querySelector("[data-rm]").onclick = (ev) => { ev.stopPropagation(); fields = fields.filter((x) => x.id !== f.id); draw(); };
             pg.appendChild(el);
+            makeInteractive(el, f, pg);
           });
         });
         pages.forEach((pg, idx) => pg.addEventListener("click", (e) => {
@@ -1179,7 +1209,8 @@ window.APP_CONFIG = {
           const r = pg.getBoundingClientRect();
           const x = ((e.clientX - r.left) / r.width) * 100, y = ((e.clientY - r.top) / r.height) * 100;
           const big = active === "signature" || active === "address";
-          fields.push({ id: Math.random().toString(36).slice(2, 8), type: active, page: idx, x: Math.max(0, Math.min(94, x - 9)), y: Math.max(0, Math.min(96, y - 2)), w: big ? 26 : 20, h: big ? 9 : 5 });
+          const w = big ? 22 : 16, h = big ? 7 : 4.2;
+          fields.push({ id: Math.random().toString(36).slice(2, 8), type: active, page: idx, x: Math.max(0, Math.min(100 - w, x - w / 2)), y: Math.max(0, Math.min(100 - h, y - h / 2)), w, h });
           active = null; paint();                    // de-select after placing → prevents duplicates
           draw();
         }));
