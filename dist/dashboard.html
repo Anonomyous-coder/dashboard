@@ -1646,7 +1646,8 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       const dz = root.querySelector("#dropzone");
       const addFiles = (files) => {
         const arr = [...files]; if (!arr.length) return;
-        let pending = arr.length, firstId = null;
+        const LIMIT = 3 * 1024 * 1024; // ~3MB browser-storage cap for inline viewing
+        let pending = arr.length, firstRec = null, tooBig = 0;
         arr.forEach((f) => {
           const base = {
             title: f.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
@@ -1655,15 +1656,19 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
           };
           const finish = (extra) => {
             const rec = S.add("sops", { ...base, ...extra });
-            if (!firstId) firstId = rec.id;
-            if (--pending === 0) { sopSelected = firstId; U.toast(arr.length + " file(s) uploaded", "success"); window.App.rerender(); }
+            if (!firstRec) firstRec = rec;
+            if (--pending === 0) {
+              U.toast(arr.length + " file(s) uploaded" + (tooBig ? ` · ${tooBig} too large to preview` : ""), tooBig ? "" : "success");
+              window.App.rerender();
+              if (firstRec && docSrc(firstRec)) openViewer(firstRec); // auto-open the uploaded doc
+            }
           };
-          if (/\.pdf$/i.test(f.name) && f.size < 2.6 * 1024 * 1024) {
+          if (f.size < LIMIT) {
             const r = new FileReader();
             r.onload = () => finish({ dataUrl: r.result });
             r.onerror = () => finish({});
             r.readAsDataURL(f);
-          } else finish({});
+          } else { tooBig++; finish({}); }
         });
       };
       dz.onclick = () => fileInput.click();
@@ -1672,19 +1677,23 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       dz.ondragleave = () => dz.classList.remove("drag");
       dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("drag"); addFiles(e.dataTransfer.files); };
 
-      const openViewer = (s) => {
+      function openViewer(s) {
         if (!s) return;
         const src = docSrc(s);
-        const isPdf = /\.pdf$/i.test(s.fileName || "") && src;
+        const ext = (s.fileName || "").split(".").pop().toLowerCase();
+        const isPdf = ext === "pdf" && src;
+        const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext) && src;
+        let body;
+        if (isPdf) body = `<iframe src="${U.esc(src)}#view=FitH" title="${U.esc(s.title)}" style="width:100%;height:72vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`;
+        else if (isImg) body = `<div style="text-align:center"><img src="${U.esc(src)}" alt="${U.esc(s.title)}" style="max-width:100%;max-height:72vh;border-radius:8px"/></div>`;
+        else body = `<div class="empty"><div class="em-ico">${fileIcon(s.fileName)}</div><p>This is a ${ext ? U.esc(ext.toUpperCase()) + " " : ""}file — browsers can't preview it inline.${src ? " Use the button below to download / open it." : " Re-upload the file to view it here."}</p></div>`;
         U.modal({
           title: s.title,
-          body: isPdf
-            ? `<iframe src="${U.esc(src)}#view=FitH" title="${U.esc(s.title)}" style="width:100%;height:72vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
-            : `<div class="empty"><div class="em-ico">${fileIcon(s.fileName)}</div><p>Inline preview isn't available for this file type${s.fileName ? ` (${U.esc((s.fileName.split(".").pop() || "").toUpperCase())})` : ""}.${src ? "" : " Re-upload the file to read it here."}</p></div>`,
-          footer: `${src ? `<a class="btn" href="${U.esc(src)}" target="_blank" rel="noopener">↗ Open in new tab</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`,
-          onMount: (card) => { if (isPdf) card.style.width = "min(980px, calc(100vw - 32px))"; },
+          body,
+          footer: `${src ? `<a class="btn" href="${U.esc(src)}" ${isPdf || isImg ? 'target="_blank" rel="noopener"' : `download="${U.esc(s.fileName || "document")}"`}>↗ ${isPdf || isImg ? "Open in new tab" : "Download"}</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`,
+          onMount: (card) => { if (isPdf || isImg) card.style.width = "min(980px, calc(100vw - 32px))"; },
         });
-      };
+      }
       root.querySelectorAll("[data-view]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); openViewer(S.find("sops", b.dataset.view)); }));
       root.querySelectorAll("[data-open]").forEach((tr) => (tr.onclick = (e) => {
         if (e.target.closest("[data-act]") || e.target.closest("[data-view]")) return;
