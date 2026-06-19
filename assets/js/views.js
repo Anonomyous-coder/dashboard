@@ -663,36 +663,16 @@
     render() {
       const d = S.get();
       const docs = d.sops;
-      const selected = docs.find((s) => s.id === sopSelected) || docs.find((s) => docSrc(s)) || docs[0] || null;
-      const src = docSrc(selected);
-      const isPdf = selected && /\.pdf$/i.test(selected.fileName || "") && src;
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>SOPs & Documents</h1><p>Upload, host, and read your standard operating procedures.</p></div>
+        <div class="ph-text"><h1>SOPs & Documents</h1><p>Upload and host your standard operating procedures. Click a document to open it.</p></div>
         <div class="ph-actions"><button class="btn primary" id="uploadDoc">⬆ Upload document</button></div>
       </div>
 
-      <div class="card">
-        <div class="card-head">
-          <h3>${selected ? U.esc(selected.title) : "Document viewer"}</h3>
-          <div class="ch-actions">
-            ${selected ? `<span class="chip">${U.esc(selected.category || "")}</span><span class="chip">${U.esc(selected.version || "")}</span>` : ""}
-            ${src ? `<a class="btn sm" href="${U.esc(src)}" target="_blank" rel="noopener">↗ Open</a>` : ""}
-          </div>
-        </div>
-        <div class="card-pad">
-          ${isPdf
-            ? `<iframe src="${U.esc(src)}#view=FitH" title="${U.esc(selected.title)}" style="width:100%;height:620px;border:1px solid var(--border);border-radius:10px;background:#fff"></iframe>`
-            : selected
-              ? `<div class="empty"><div class="em-ico">${fileIcon(selected.fileName)}</div><p>Inline preview isn't available for this file type${selected.fileName ? ` (${U.esc((selected.fileName.split(".").pop() || "").toUpperCase())})` : ""}.${src ? ` <a href="${U.esc(src)}" target="_blank" rel="noopener" style="color:var(--primary)">Open in a new tab</a>.` : " Re-upload the file to read it here."}</p></div>`
-              : U.empty("📄", "No documents yet. Upload your first SOP to read it here.")}
-        </div>
-      </div>
-
-      <div class="dropzone mt-24" id="dropzone">
+      <div class="dropzone" id="dropzone">
         <div class="dz-ico">📁</div>
         <div><strong>Drag & drop files here</strong> or click to browse</div>
-        <div class="faint" style="font-size:12px;margin-top:4px">PDFs preview inline · stored locally in this workspace</div>
+        <div class="faint" style="font-size:12px;margin-top:4px">PDFs open in a viewer · stored locally in this workspace</div>
         <input type="file" id="fileInput" multiple style="display:none"/>
       </div>
 
@@ -703,7 +683,7 @@
             <thead><tr><th>Document</th><th>Category</th><th>Version</th><th>Size</th><th>Uploaded by</th><th>Date</th><th></th></tr></thead>
             <tbody>
               ${docs.length ? docs.map((s) => `
-                <tr style="${selected && s.id === selected.id ? "background:var(--primary-soft)" : ""}">
+                <tr ${docSrc(s) ? `data-open="${s.id}" style="cursor:pointer"` : ""}>
                   <td><div class="flex gap-12 center"><div class="li-ico bg-info">${fileIcon(s.fileName)}</div>
                     <div><div class="row-main">${U.esc(s.title)}</div><div class="row-sub">${U.esc(s.fileName)}</div></div></div></td>
                   <td><span class="chip">${U.esc(s.category)}</span></td>
@@ -713,7 +693,7 @@
                   <td class="muted nowrap">${U.dateShort(s.uploaded)}</td>
                   <td>
                     <div class="flex gap-8 nowrap">
-                      ${docSrc(s) ? `<button class="btn sm" data-view="${s.id}">View</button>` : ""}
+                      ${docSrc(s) ? `<button class="btn sm" data-view="${s.id}">Open</button>` : ""}
                       <button class="btn sm ghost" data-act="edit" data-id="${s.id}">Edit</button>
                       <button class="btn sm ghost" data-act="del" data-id="${s.id}" style="color:var(--danger)">Delete</button>
                     </div>
@@ -756,7 +736,24 @@
       dz.ondragleave = () => dz.classList.remove("drag");
       dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("drag"); addFiles(e.dataTransfer.files); };
 
-      root.querySelectorAll("[data-view]").forEach((b) => (b.onclick = () => { sopSelected = b.dataset.view; window.App.rerender(); window.scrollTo(0, 0); }));
+      const openViewer = (s) => {
+        if (!s) return;
+        const src = docSrc(s);
+        const isPdf = /\.pdf$/i.test(s.fileName || "") && src;
+        U.modal({
+          title: s.title,
+          body: isPdf
+            ? `<iframe src="${U.esc(src)}#view=FitH" title="${U.esc(s.title)}" style="width:100%;height:72vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`
+            : `<div class="empty"><div class="em-ico">${fileIcon(s.fileName)}</div><p>Inline preview isn't available for this file type${s.fileName ? ` (${U.esc((s.fileName.split(".").pop() || "").toUpperCase())})` : ""}.${src ? "" : " Re-upload the file to read it here."}</p></div>`,
+          footer: `${src ? `<a class="btn" href="${U.esc(src)}" target="_blank" rel="noopener">↗ Open in new tab</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`,
+          onMount: (card) => { if (isPdf) card.style.width = "min(980px, calc(100vw - 32px))"; },
+        });
+      };
+      root.querySelectorAll("[data-view]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); openViewer(S.find("sops", b.dataset.view)); }));
+      root.querySelectorAll("[data-open]").forEach((tr) => (tr.onclick = (e) => {
+        if (e.target.closest("[data-act]") || e.target.closest("[data-view]")) return;
+        openViewer(S.find("sops", tr.dataset.open));
+      }));
       root.querySelector("#uploadDoc").onclick = () => openDocForm(null);
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => openDocForm(S.find("sops", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
