@@ -1175,11 +1175,13 @@
             </div>
             <div class="flex gap-8 mt-16" style="flex-wrap:wrap">
               <span class="chip">🏢 ${U.esc(m.dept)}</span>
-              <span class="chip">✉️ ${U.esc(m.email)}</span>
+              ${m.email ? `<span class="chip">✉️ ${U.esc(m.email)}</span>` : ""}
+              ${m.invited ? `<span class="chip" style="color:var(--success)">✓ Invited</span>` : ""}
             </div>
             <div class="flex between center mt-16">
               <span class="faint" style="font-size:12px">Joined ${U.date(m.joined)}</span>
               <div class="flex gap-8">
+                ${m.email ? `<button class="btn sm" data-invite="${m.id}">${m.invited ? "Resend" : "✉ Invite"}</button>` : ""}
                 <button class="btn sm ghost" data-act="edit" data-id="${m.id}">Edit</button>
                 <button class="btn sm ghost" data-act="del" data-id="${m.id}" style="color:var(--danger)">Remove</button>
               </div>
@@ -1188,26 +1190,50 @@
       </div>`;
     },
     mount(root) {
+      const sendInvite = async (m) => {
+        if (!m || !m.email) { U.toast("Add an email first", "error"); return; }
+        U.toast("Sending invite to " + m.email + "…");
+        try {
+          const r = await fetch("/api/invite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ to: m.email, name: m.name, inviter: S.get().profile.name, appUrl: location.origin + location.pathname }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(data.error || (r.status === 404 ? "Invites run on your Vercel site (the /api endpoint isn't on github.io)." : "HTTP " + r.status));
+          S.update("team", m.id, { invited: true, invitedAt: new Date().toISOString() });
+          U.toast("Invite sent to " + m.email, "success");
+          window.App.rerender();
+        } catch (e) {
+          U.toast("Invite failed: " + (e.message || e), "error");
+        }
+      };
+
       const open = (m) => {
         U.formModal({
           title: m ? "Edit member" : "Add team member",
-          submitLabel: m ? "Save" : "Add",
+          submitLabel: m ? "Save" : "Add & invite",
           values: m || {},
           fields: [
             { name: "name", label: "Full name", required: true, half: true },
             { name: "title", label: "Title", half: true },
             { name: "dept", label: "Department", type: "select", options: ["Operations", "Finance", "Marketing", "Design", "Engineering", "Sales", "Support"].map((c) => ({ value: c, label: c })), half: true },
             { name: "status", label: "Status", type: "select", options: [{ value: "active", label: "Active" }, { value: "away", label: "Away" }], half: true },
-            { name: "email", label: "Email", type: "email" },
+            { name: "email", label: "Email (invite sent here)", type: "email" },
           ],
           onSubmit: (data) => {
-            if (m) { S.update("team", m.id, data); U.toast("Updated", "success"); }
-            else { S.add("team", { ...data, joined: new Date().toISOString() }); U.toast("Member added", "success"); }
-            window.App.rerender();
+            if (m) { S.update("team", m.id, data); U.toast("Updated", "success"); window.App.rerender(); }
+            else {
+              const rec = S.add("team", { ...data, joined: new Date().toISOString() });
+              U.toast("Member added", "success");
+              window.App.rerender();
+              if (rec.email) sendInvite(rec); // auto-send the join invite
+            }
           },
         });
       };
       root.querySelector("#addMember").onclick = () => open(null);
+      root.querySelectorAll("[data-invite]").forEach((b) => (b.onclick = () => sendInvite(S.find("team", b.dataset.invite))));
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => open(S.find("team", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
         U.confirm("Remove this team member?", () => { S.remove("team", b.dataset.id); U.toast("Removed"); window.App.rerender(); })));
