@@ -1865,7 +1865,8 @@
             <div class="flex between center mt-16">
               <span class="faint" style="font-size:12px">Joined ${U.date(m.created_at)}</span>
               <div class="flex gap-8">
-                ${m.id !== me.id ? `<button class="btn sm" data-viewas="${m.id}">View as</button>
+                <button class="btn sm" data-editmember="${m.id}">Edit</button>
+                ${m.id !== me.id ? `<button class="btn sm ghost" data-viewas="${m.id}">View as</button>
                   <button class="btn sm ghost" data-role="${m.id}" data-to="${m.role === "admin" ? "employee" : "admin"}">${m.role === "admin" ? "Make employee" : "Make admin"}</button>
                   <button class="btn sm ghost" data-remove="${m.id}" style="color:var(--danger)">Remove</button>` : ""}
               </div>
@@ -1893,6 +1894,32 @@
         },
       });
     };
+    root.querySelectorAll("[data-editmember]").forEach((b) => (b.onclick = () => {
+      const m = window.DB.profile(b.dataset.editmember);
+      U.formModal({
+        title: "Edit " + window.DB.displayName(m),
+        submitLabel: "Save",
+        values: { full_name: m.full_name || "", title: m.title || "", dept: m.dept || "", id_number: m.id_number || "", phone: m.phone || "", location: m.location || "", role: m.role || "employee", status: m.status || "active", address: m.address || "" },
+        fields: [
+          { name: "full_name", label: "Full name", half: true },
+          { name: "title", label: "Title", half: true },
+          { name: "dept", label: "Department", half: true },
+          { name: "id_number", label: "ID number", half: true },
+          { name: "phone", label: "Phone", half: true },
+          { name: "location", label: "Location", half: true },
+          { name: "role", label: "Role", type: "select", options: [{ value: "employee", label: "Employee" }, { value: "admin", label: "Admin" }], half: true },
+          { name: "status", label: "Status", type: "select", options: [{ value: "active", label: "Active" }, { value: "away", label: "Away" }], half: true },
+          { name: "address", label: "Address", type: "textarea" },
+        ],
+        onSubmit: async (data) => {
+          try {
+            await window.DB.updateProfile(m.id, data);
+            if (m.id === window.DB.me().id && window.Auth) await window.Auth.reloadProfile();
+            U.toast("Saved", "success"); window.App.refreshSidebarUser(); window.App.rerender();
+          } catch (e) { U.toast("Couldn't save: " + (e.message || e), "error"); }
+        },
+      });
+    }));
     root.querySelectorAll("[data-viewas]").forEach((b) => (b.onclick = () => {
       window.DB.viewAs = b.dataset.viewas;
       U.toast("Viewing " + window.DB.displayName(window.DB.profile(b.dataset.viewas)) + "'s account", "success");
