@@ -14,8 +14,8 @@ const CATEGORIES = [
   },
   {
     key: "coding",
-    whatOr: '"medical coder" "medical coding" "medical billing" "coding specialist" CPC CCS',
-    rx: /\b(medical cod|medical bill|coding specialist|cpc|ccs|icd-?10|inpatient coder|outpatient coder|risk adjustment)\b/,
+    whatOr: '"medical coder" "medical coding" "medical biller" "medical billing" "coding specialist" "risk adjustment" "health information" CPC CCS',
+    rx: /coder|coding|medical bill|cpc|ccs|icd|risk adjustment|health information/i,
     tag: () => "Medical Coding",
   },
 ];
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
   const q = req.query || {};
   const country = (q.country || "us").toLowerCase();
-  const pagesPer = Math.min(parseInt(q.pages || "3", 10) || 3, 8);
+  const pagesPer = Math.min(parseInt(q.pages || "5", 10) || 5, 10);
 
   const jobs = [];
   try {
@@ -39,8 +39,8 @@ export default async function handler(req, res) {
         const url =
           `https://api.adzuna.com/v1/api/jobs/${country}/search/${p}` +
           `?app_id=${encodeURIComponent(appId)}&app_key=${encodeURIComponent(appKey)}` +
-          `&results_per_page=50&what=remote&what_or=${encodeURIComponent(cat.whatOr)}` +
-          `&max_days_old=21&sort_by=date&content-type=application/json`;
+          `&results_per_page=50&what_or=${encodeURIComponent(cat.whatOr)}` +
+          `&max_days_old=30&sort_by=date&content-type=application/json`;
         const r = await fetch(url);
         if (!r.ok) break;
         const data = await r.json();
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
           const loc = ((o.location && o.location.display_name) || "").toLowerCase();
           const desc = (o.description || "").toLowerCase();
           const text = title + " " + desc;
-          const isRemote = /remote|work from home|wfh|anywhere|telecommute/.test(text + " " + loc);
+          const isRemote = /remote|work from home|wfh|anywhere|telecommute|virtual|home[- ]?based/.test(text + " " + loc);
           if (!isRemote || !cat.rx.test(text)) continue;
           jobs.push({
             id: String(o.id),
