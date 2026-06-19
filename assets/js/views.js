@@ -1628,6 +1628,13 @@
   }
 
   // ---- Contracts in logged-in (Supabase) mode ----
+  // stamp the admin's saved signature into any "Company signature" fields
+  function stampAdminSig(existing, fields) {
+    const sig = (window.DB.me() && window.DB.me().signature_url) || "";
+    const fv = { ...(existing || {}) };
+    (fields || []).forEach((f) => { if (f.type === "admin_sig") fv[f.id] = sig; });
+    return fv;
+  }
   const CFIELDS = ["name", "email", "phone", "address", "date", "signature"];
   const CFLABEL = { name: "Full name", email: "Email", phone: "Phone", address: "Address", date: "Date", signature: "Signature" };
   function fileBody(src, name) {
@@ -1705,7 +1712,7 @@
           U.closeModal();
           window.App.rerender();
           if (created && created.file_url && window.Esign) {
-            Esign.openEditor(created, async (fields) => { try { await window.DB.updateContract(created.id, { fields }); U.toast("Contract ready — fields placed", "success"); window.App.rerender(); } catch (e) { U.toast("Couldn't save fields: " + (e.message || e), "error"); } });
+            Esign.openEditor(created, async (fields) => { try { await window.DB.updateContract(created.id, { fields, field_values: stampAdminSig(created.field_values, fields) }); U.toast("Contract ready — fields placed", "success"); window.App.rerender(); } catch (e) { U.toast("Couldn't save fields: " + (e.message || e), "error"); } });
           } else U.toast("Contract created (no document attached)", "success");
         };
       },
@@ -1788,7 +1795,7 @@
     }));
     root.querySelectorAll("[data-placefields]").forEach((b) => (b.onclick = () => {
       const c = find(b.dataset.placefields);
-      Esign.openEditor(c, async (fields) => { await window.DB.updateContract(c.id, { fields }); U.toast("Fields saved", "success"); window.App.rerender(); });
+      Esign.openEditor(c, async (fields) => { await window.DB.updateContract(c.id, { fields, field_values: stampAdminSig(c.field_values, fields) }); U.toast("Fields saved", "success"); window.App.rerender(); });
     }));
     root.querySelectorAll("[data-preview]").forEach((b) => (b.onclick = () => {
       const c = find(b.dataset.preview);

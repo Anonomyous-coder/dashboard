@@ -6,7 +6,7 @@
 (function () {
   const U = window.UI;
   const Esign = {};
-  const TYPES = { name: "Full name", email: "Email", phone: "Phone", address: "Address", date: "Date", signature: "Signature", text: "Text" };
+  const TYPES = { name: "Full name", email: "Email", phone: "Phone", address: "Address", date: "Date", signature: "Signature", admin_sig: "Company signature", text: "Text" };
 
   function ensureWorker() {
     if (window.pdfjsLib && pdfjsLib.GlobalWorkerOptions)
@@ -147,7 +147,7 @@
   Esign.openSigner = function (c, profile, onSubmit) {
     const fields = (c.fields || []).filter((f) => f && f.type);
     const prefill = { name: profile.full_name || "", email: profile.email || "", phone: profile.phone || "", address: profile.address || "", date: new Date().toLocaleDateString() };
-    const values = {};
+    const values = { ...(c.field_values || {}) }; // keep already-stamped values (e.g. company signature)
     U.modal({
       title: "Review & sign — " + c.title,
       body: `<div id="esHost" style="max-height:64vh;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px"></div>
@@ -161,7 +161,10 @@
           const pg = pages[f.page]; if (!pg) return;
           const el = document.createElement("div");
           el.style.cssText = `position:absolute;left:${f.x}%;top:${f.y}%;width:${f.w}%;height:${f.h}%`;
-          if (f.type === "signature") {
+          if (f.type === "admin_sig") {
+            const av = values[f.id];
+            el.innerHTML = av ? `<img src="${av}" style="width:100%;height:100%;object-fit:contain;background:rgba(255,255,255,.9);border:1px solid #2dd4ff;border-radius:4px"/>` : `<div style="width:100%;height:100%;border:1px solid #2dd4ff;border-radius:4px;font-size:9px;color:#333;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.9)">Company signature</div>`;
+          } else if (f.type === "signature") {
             if (profile.signature_url) { values[f.id] = profile.signature_url; el.innerHTML = `<img src="${profile.signature_url}" style="width:100%;height:100%;object-fit:contain;background:rgba(255,255,255,.9);border:1px solid #2dd4ff;border-radius:4px"/>`; }
             else el.innerHTML = `<div style="width:100%;height:100%;border:1px dashed #ff4d5e;border-radius:4px;font-size:9px;color:#b00;display:flex;align-items:center;justify-content:center;text-align:center;background:rgba(255,255,255,.92)">Add signature in My Account</div>`;
           } else {
@@ -196,7 +199,7 @@
           const pg = pages[f.page]; if (!pg) return;
           const v = vals[f.id]; const el = document.createElement("div");
           el.style.cssText = `position:absolute;left:${f.x}%;top:${f.y}%;width:${f.w}%;height:${f.h}%`;
-          if (f.type === "signature" && v) el.innerHTML = `<img src="${v}" style="width:100%;height:100%;object-fit:contain"/>`;
+          if ((f.type === "signature" || f.type === "admin_sig") && v) el.innerHTML = `<img src="${v}" style="width:100%;height:100%;object-fit:contain"/>`;
           else el.innerHTML = `<div style="font-size:12px;color:#111;background:rgba(255,235,0,.35);border-radius:3px;padding:1px 4px;display:inline-block">${U.esc(v || "")}</div>`;
           pg.appendChild(el);
         });
