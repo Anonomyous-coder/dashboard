@@ -8,7 +8,7 @@
   const DB = {
     active: false,
     viewAs: null, // admin "view as member": a profile id being inspected
-    cache: { profiles: [], time_entries: [], contracts: [], notifications: [], departments: [] },
+    cache: { profiles: [], time_entries: [], contracts: [], notifications: [], departments: [], sops: [] },
   };
 
   const c = () => A.client();
@@ -21,18 +21,20 @@
   DB.load = async function () {
     if (!(A && A.enabled && A.user())) return;
     DB.active = true;
-    const [pf, te, ct, nt, dp] = await Promise.all([
+    const [pf, te, ct, nt, dp, sp] = await Promise.all([
       c().from("profiles").select("*").order("created_at", { ascending: true }),
       c().from("time_entries").select("*").order("clock_in", { ascending: false }),
       c().from("contracts").select("*").order("created_at", { ascending: false }),
       c().from("notifications").select("*").order("created_at", { ascending: false }),
       c().from("departments").select("*").order("name", { ascending: true }),
+      c().from("sops").select("*").order("created_at", { ascending: false }),
     ]);
     DB.cache.profiles = pf.data || [];
     DB.cache.time_entries = te.data || [];
     DB.cache.contracts = ct.data || [];
     DB.cache.notifications = nt.data || [];
     DB.cache.departments = dp.data || [];
+    DB.cache.sops = sp.data || [];
   };
   DB.reload = DB.load;
 
@@ -63,6 +65,12 @@
     }
     await DB.load();
   };
+
+  // ---- SOPs (admin uploads + assigns; employees see only theirs) ----
+  DB.sops = () => DB.cache.sops;
+  DB.addSop = async (rec) => { await c().from("sops").insert(rec); await DB.load(); };
+  DB.updateSop = async (id, patch) => { await c().from("sops").update(patch).eq("id", id); await DB.load(); };
+  DB.removeSop = async (id) => { await c().from("sops").delete().eq("id", id); await DB.load(); };
 
   // ---- departments (admin-managed; used when clocking in) ----
   DB.departments = () => DB.cache.departments;

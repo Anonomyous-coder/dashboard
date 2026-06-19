@@ -831,6 +831,7 @@
   Views.sops = {
     title: "SOPs",
     render() {
+      if (window.DB && window.DB.active) return sopsDB();
       const d = S.get();
       const docs = d.sops;
       return `
@@ -876,6 +877,7 @@
       </div>`;
     },
     mount(root) {
+      if (window.DB && window.DB.active) return sopsDBMount(root);
       const fileInput = root.querySelector("#fileInput");
       const dz = root.querySelector("#dropzone");
       const addFiles = (files) => {
@@ -1345,6 +1347,123 @@
         U.confirm("Remove this team member?", () => { S.remove("team", b.dataset.id); U.toast("Removed"); window.App.rerender(); })));
     },
   };
+
+  // ---- SOPs in logged-in (Supabase) mode ----
+  function sopViewer(s) {
+    const src = s.file_url || "";
+    const ext = (s.file_name || "").split(".").pop().toLowerCase();
+    const isPdf = ext === "pdf" && src;
+    const isImg = ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext) && src;
+    let body;
+    if (isPdf) body = `<iframe src="${U.esc(src)}#view=FitH" style="width:100%;height:72vh;border:1px solid var(--border);border-radius:8px;background:#fff"></iframe>`;
+    else if (isImg) body = `<div style="text-align:center"><img src="${U.esc(src)}" style="max-width:100%;max-height:72vh;border-radius:8px"/></div>`;
+    else body = `<div class="empty"><div class="em-ico">${fileIcon(s.file_name)}</div><p>${src ? "Preview not available for this type — use the button below." : "No file attached."}</p></div>`;
+    U.modal({
+      title: s.title,
+      body,
+      footer: `${src ? `<a class="btn" href="${U.esc(src)}" ${isPdf || isImg ? 'target="_blank" rel="noopener"' : `download="${U.esc(s.file_name || "document")}"`}>↗ ${isPdf || isImg ? "Open in new tab" : "Download"}</a>` : ""}<button class="btn primary" data-modal-close>Close</button>`,
+      onMount: (card) => { if (isPdf || isImg) card.style.width = "min(980px, calc(100vw - 32px))"; },
+    });
+  }
+  function sopsDB() {
+    const admin = window.DB.isAdmin();
+    const docs = window.DB.sops();
+    const nameOf = (id) => { const p = window.DB.profile(id); return p ? window.DB.displayName(p) : "—"; };
+
+    if (!admin) {
+      return `
+        <div class="page-head"><div class="ph-text"><h1>SOPs & Documents</h1><p>Documents shared with you — click to read.</p></div></div>
+        <div class="grid cols-3">
+          ${docs.length ? docs.map((s) => `
+            <div class="card card-pad" data-opensop="${s.id}" style="cursor:pointer">
+              <div class="flex gap-12 center">
+                <div class="li-ico bg-info">${fileIcon(s.file_name)}</div>
+                <div style="min-width:0"><div class="row-main">${U.esc(s.title)}</div><div class="row-sub">${U.esc(s.category || "")} · ${U.esc(s.version || "")}</div></div>
+              </div>
+              <div class="flex between center mt-16"><span class="faint" style="font-size:12px">${U.ago(s.created_at)}</span><button class="btn sm" data-opensop="${s.id}">Open</button></div>
+            </div>`).join("")
+            : `<div style="grid-column:1/-1">${U.empty("📄", "No documents have been shared with you yet.")}</div>`}
+        </div>`;
+    }
+
+    return `
+      <div class="page-head">
+        <div class="ph-text"><h1>SOPs & Documents</h1><p>Upload a document and assign it to a person — they'll only see it if it's assigned to them.</p></div>
+        <div class="ph-actions"><button class="btn primary" id="uploadSop">⬆ Upload document</button></div>
+      </div>
+      <div class="card mt-8">
+        <div class="card-head"><h3>Document library</h3><div class="ch-actions"><span class="chip">${docs.length} files</span></div></div>
+        <div class="table-wrap"><table class="tbl">
+          <thead><tr><th>Document</th><th>Category</th><th>Assigned to</th><th>Date</th><th></th></tr></thead>
+          <tbody>${docs.length ? docs.map((s) => `
+            <tr>
+              <td><div class="flex gap-12 center"><div class="li-ico bg-info">${fileIcon(s.file_name)}</div><div><div class="row-main">${U.esc(s.title)}</div><div class="row-sub">${U.esc(s.file_name || "")}</div></div></div></td>
+              <td><span class="chip">${U.esc(s.category || "—")}</span></td>
+              <td>${s.assigned_to ? U.esc(nameOf(s.assigned_to)) : '<span class="faint">Admin only</span>'}</td>
+              <td class="muted nowrap">${U.dateShort(s.created_at)}</td>
+              <td><div class="flex gap-8 nowrap">
+                ${s.file_url ? `<button class="btn sm" data-opensop="${s.id}">Open</button>` : ""}
+                <button class="btn sm ghost" data-delsop="${s.id}" style="color:var(--danger)">Delete</button>
+              </div></td>
+            </tr>`).join("")
+            : `<tr><td colspan="5">${U.empty("📄", "No documents yet. Upload one and assign it to a team member.")}</td></tr>`}
+          </tbody></table></div>
+      </div>`;
+  }
+  function sopsDBMount(root) {
+    root.querySelectorAll("[data-opensop]").forEach((b) => (b.onclick = (e) => {
+      e.stopPropagation();
+      const s = window.DB.sops().find((x) => x.id === b.dataset.opensop);
+      if (s) sopViewer(s);
+    }));
+    const up = root.querySelector("#uploadSop");
+    if (!up) return;
+    up.onclick = () => {
+      const people = window.DB.profiles().filter((p) => p.role !== "admin");
+      U.modal({
+        title: "Upload document",
+        body: `
+          <div class="field"><label>Title</label><input id="sTitle" placeholder="e.g. Safety Procedure"/></div>
+          <div class="field-row">
+            <div class="field"><label>Category</label><input id="sCat" placeholder="HR, Ops…"/></div>
+            <div class="field"><label>Version</label><input id="sVer" placeholder="v1.0" value="v1.0"/></div>
+          </div>
+          <div class="field"><label>Assign to</label>
+            <select id="sAssign"><option value="">— Admin only (not shared) —</option>${people.map((p) => `<option value="${p.id}">${U.esc(window.DB.displayName(p))}${p.email ? " — " + U.esc(p.email) : ""}</option>`).join("")}</select>
+          </div>
+          <div class="field"><label>File</label><input type="file" id="sFile" accept=".pdf,.doc,.docx,image/*"/>
+            <div class="faint" id="sFileName" style="font-size:12px;margin-top:4px">PDF, Word, or image (up to ~3MB)</div></div>`,
+        footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="sSave">Upload</button>`,
+        onMount: (card) => {
+          let fileName = "", fileUrl = "";
+          card.querySelector("#sFile").onchange = (e) => {
+            const f = e.target.files[0]; if (!f) return;
+            if (f.size > 3 * 1024 * 1024) { card.querySelector("#sFileName").textContent = "Too large (max ~3MB) — will be listed without preview."; fileName = f.name; fileUrl = ""; return; }
+            const r = new FileReader();
+            r.onload = () => { fileName = f.name; fileUrl = r.result; card.querySelector("#sFileName").textContent = "Selected: " + f.name; };
+            r.readAsDataURL(f);
+          };
+          card.querySelector("#sSave").onclick = async () => {
+            const title = card.querySelector("#sTitle").value.trim();
+            if (!title) { U.toast("Enter a title", "error"); return; }
+            const rec = {
+              title, category: card.querySelector("#sCat").value.trim() || "General",
+              version: card.querySelector("#sVer").value.trim() || "v1.0",
+              file_name: fileName || null, file_url: fileUrl || null,
+              assigned_to: card.querySelector("#sAssign").value || null,
+              uploaded_by: window.DB.displayName(window.DB.me()),
+            };
+            U.closeModal();
+            await window.DB.addSop(rec);
+            U.toast("Document uploaded", "success");
+            window.App.rerender();
+          };
+        },
+      });
+    };
+    root.querySelectorAll("[data-delsop]").forEach((b) => (b.onclick = () =>
+      U.confirm("Delete this document?", async () => { await window.DB.removeSop(b.dataset.delsop); U.toast("Deleted"); window.App.rerender(); })));
+  }
 
   // avatar image (or initials) for a Supabase profile
   function dbAvatar(p) {

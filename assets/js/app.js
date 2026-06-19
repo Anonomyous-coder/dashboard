@@ -26,7 +26,7 @@
   let current = location.hash.replace("#", "") || "dashboard";
 
   // Employees only see these sections; admins (and no-login mode) see all.
-  const EMPLOYEE_ROUTES = ["timetracker", "account", "contracts"];
+  const EMPLOYEE_ROUTES = ["timetracker", "account", "contracts", "sops"];
   function allowedRoutes() {
     const A = window.Auth;
     if (A && A.enabled && A.user() && !A.isAdmin()) return EMPLOYEE_ROUTES;
