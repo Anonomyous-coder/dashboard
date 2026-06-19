@@ -3204,10 +3204,11 @@ window.APP_CONFIG = {
       U.formModal({
         title: "Edit " + window.DB.displayName(m),
         submitLabel: "Save",
-        values: { full_name: m.full_name || "", title: m.title || "", dept: m.dept || "", id_number: m.id_number || "", phone: m.phone || "", location: m.location || "", role: m.role || "employee", status: m.status || "active", address: m.address || "" },
+        values: { full_name: m.full_name || "", title: m.title || "", email: m.email || "", dept: m.dept || "", id_number: m.id_number || "", phone: m.phone || "", location: m.location || "", role: m.role || "employee", status: m.status || "active", address: m.address || "" },
         fields: [
           { name: "full_name", label: "Full name", half: true },
           { name: "title", label: "Title", half: true },
+          { name: "email", label: "Contact email", type: "email", half: true },
           { name: "dept", label: "Department", half: true },
           { name: "id_number", label: "ID number", half: true },
           { name: "phone", label: "Phone", half: true },
