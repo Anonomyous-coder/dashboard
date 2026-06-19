@@ -475,6 +475,8 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       ],
       savedJobs: [],
       gmailSyncedIds: [],
+      liveJobs: [],
+      liveJobsFetched: null,
       // ---- Workspace ----
       sops: [
         { id: uid(), title: "Employee Onboarding Checklist", category: "HR", version: "v2.1", fileName: "onboarding-checklist.pdf", url: "assets/docs/onboarding-checklist.pdf", size: 248320, uploadedBy: "Noah Morgan", uploaded: daysAgo(9) },
@@ -556,6 +558,8 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
     find(coll, id) { return (state[coll] || []).find((x) => x.id === id); },
 
     setProfile(patch) { state.profile = { ...state.profile, ...patch }; persist(state); },
+
+    setLiveJobs(jobs) { state.liveJobs = jobs || []; state.liveJobsFetched = new Date().toISOString(); persist(state); },
 
     // Time clock — per team member
     clockInMember(memberId, memberName, project) {
@@ -1427,26 +1431,37 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
      5. JOB SEARCH
   ========================================================= */
   let jobQuery = "", jobType = "all";
+  let jobsLoading = false;
   Views.jobsearch = {
     title: "Job Search",
     render() {
       const d = S.get();
+      const live = d.liveJobs && d.liveJobs.length;
+      const source = live ? d.liveJobs : d.jobMarket;
       const savedIds = new Set(d.savedJobs.map((j) => j.id));
       const q = jobQuery.toLowerCase();
-      let list = d.jobMarket.filter((j) =>
+      const list = source.filter((j) =>
         (jobType === "all" || j.type === jobType) &&
-        (!q || (j.role + j.company + j.location + j.tags.join(" ")).toLowerCase().includes(q)));
+        (!q || (j.role + j.company + j.location + (j.tags || []).join(" ")).toLowerCase().includes(q)));
 
       return `
-      <div class="page-head"><div class="ph-text"><h1>Job Search</h1><p>Browse newly posted roles and save the ones you like.</p></div></div>
+      <div class="page-head">
+        <div class="ph-text"><h1>Job Search</h1><p>Remote SDR / BDR roles${live ? ", live from Adzuna" : ""}. Save any role straight into your applications.</p></div>
+        <div class="ph-actions"><button class="btn primary" id="refreshJobs">${jobsLoading ? "Searching…" : "⟳ Refresh from Adzuna"}</button></div>
+      </div>
 
       <div class="card card-pad">
         <div class="flex gap-12 center" style="flex-wrap:wrap">
-          <input class="search-input" id="jobSearch" placeholder="🔍 Search role, company, location, skill…" value="${U.esc(jobQuery)}"/>
+          <input class="search-input" id="jobSearch" placeholder="🔍 Filter role, company, location…" value="${U.esc(jobQuery)}"/>
           <select class="field" id="jobType" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)">
-            ${["all", "Full-time", "Contract"].map((t) => `<option value="${t}" ${jobType === t ? "selected" : ""}>${t === "all" ? "All types" : t}</option>`).join("")}
+            ${["all", "Full-time", "Contract", "Part-time"].map((t) => `<option value="${t}" ${jobType === t ? "selected" : ""}>${t === "all" ? "All types" : t}</option>`).join("")}
           </select>
           <span class="chip">${list.length} results</span>
+        </div>
+        <div class="faint mt-8" id="jobStatus" style="font-size:12px">
+          ${live
+            ? `🟢 Live · ${d.liveJobs.length} remote SDR/BDR roles · updated ${U.ago(d.liveJobsFetched)}`
+            : "Showing sample roles. Click Refresh to pull live jobs (needs Adzuna keys on your Vercel site)."}
         </div>
       </div>
 
@@ -1455,24 +1470,27 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
           <div class="card card-pad">
             <div class="flex between center">
               <div class="flex gap-12 center">
-                <div class="avatar" style="border-radius:11px">${U.esc(j.company[0])}</div>
+                <div class="avatar" style="border-radius:11px">${U.esc((j.company || "?")[0])}</div>
                 <div><div class="row-main" style="font-size:15px">${U.esc(j.role)}</div><div class="row-sub">${U.esc(j.company)} · ${U.esc(j.location)}</div></div>
               </div>
-              ${new Date(j.posted).toDateString() === new Date().toDateString() ? `<span class="badge b-offer">New</span>` : ""}
+              ${j.posted && new Date(j.posted).toDateString() === new Date().toDateString() ? `<span class="badge b-offer">New</span>` : ""}
             </div>
             <div class="flex gap-8 mt-16" style="flex-wrap:wrap">
               <span class="chip">${U.esc(j.type)}</span>
               <span class="chip">💰 ${U.esc(j.salary)}</span>
-              ${j.tags.map((t) => `<span class="chip">${U.esc(t)}</span>`).join("")}
+              ${(j.tags || []).map((t) => `<span class="chip">${U.esc(t)}</span>`).join("")}
             </div>
             <div class="flex between center mt-16">
               <span class="faint" style="font-size:12px">Posted ${U.ago(j.posted)}</span>
-              <button class="btn ${savedIds.has(j.id) ? "" : "primary"} sm" data-save="${j.id}" ${savedIds.has(j.id) ? "disabled" : ""}>
-                ${savedIds.has(j.id) ? "✓ Saved to applications" : "＋ Save & apply"}
-              </button>
+              <div class="flex gap-8">
+                ${j.applyUrl ? `<a class="btn sm" href="${U.esc(j.applyUrl)}" target="_blank" rel="noopener">Apply ↗</a>` : ""}
+                <button class="btn ${savedIds.has(j.id) ? "" : "primary"} sm" data-save="${j.id}" ${savedIds.has(j.id) ? "disabled" : ""}>
+                  ${savedIds.has(j.id) ? "✓ Saved" : "＋ Save"}
+                </button>
+              </div>
             </div>
           </div>`).join("")
-          : `<div style="grid-column:1/-1">${U.empty("🔍", "No jobs match your search.")}</div>`}
+          : `<div style="grid-column:1/-1">${U.empty("🔍", "No jobs match your filter.")}</div>`}
       </div>`;
     },
     mount(root) {
@@ -1480,18 +1498,52 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       let t;
       search.oninput = () => { clearTimeout(t); t = setTimeout(() => { jobQuery = search.value; window.App.rerender(); const s = document.getElementById("jobSearch"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 220); };
       root.querySelector("#jobType").onchange = (e) => { jobType = e.target.value; window.App.rerender(); };
+
+      const fetchLiveJobs = async (force) => {
+        const d = S.get();
+        const fresh = d.liveJobsFetched && (Date.now() - new Date(d.liveJobsFetched) < 24 * 36e5);
+        if (!force && fresh && d.liveJobs.length) return;
+        if (jobsLoading) return;
+        jobsLoading = true;
+        const note = document.getElementById("jobStatus");
+        if (note) note.textContent = "Searching Adzuna for remote SDR/BDR roles…";
+        try {
+          const r = await fetch("/api/jobs?country=us");
+          if (!r.ok) throw new Error(r.status === 404 ? "not-deployed" : "HTTP " + r.status);
+          const data = await r.json();
+          if (data.error) throw new Error(data.error);
+          jobsLoading = false;
+          S.setLiveJobs(data.jobs || []);
+          U.toast(`Found ${data.count} remote SDR/BDR roles`, "success");
+          window.App.rerender();
+        } catch (e) {
+          jobsLoading = false;
+          const n = document.getElementById("jobStatus");
+          if (n) n.textContent = e.message === "not-deployed"
+            ? "Live search runs on your Vercel site — open the dashboard-noah25.vercel.app URL (the /api endpoint isn't on github.io)."
+            : "Couldn't load live jobs: " + e.message;
+        }
+      };
+
+      root.querySelector("#refreshJobs").onclick = () => fetchLiveJobs(true);
+
       root.querySelectorAll("[data-save]").forEach((b) => (b.onclick = () => {
-        const job = S.find("jobMarket", b.dataset.save);
+        const id = b.dataset.save;
+        const job = [...S.get().liveJobs, ...S.get().jobMarket].find((j) => String(j.id) === String(id));
         if (!job) return;
         S.get().savedJobs.push({ id: job.id });
         S.save();
         S.add("applications", {
           company: job.company, role: job.role, status: "applied", location: job.location,
-          salary: job.salary, source: "Job Search", applied: new Date().toISOString(), notes: "Saved from Job Search", interviewDate: null,
+          salary: job.salary, source: "Job Search", applied: new Date().toISOString(),
+          notes: "Saved from Job Search" + (job.applyUrl ? "\n" + job.applyUrl : ""), interviewDate: null,
         });
         U.toast("Saved to Job Applications", "success");
         window.App.rerender();
       }));
+
+      // auto-refresh once a day when the page is opened
+      fetchLiveJobs(false);
     },
   };
 

@@ -50,6 +50,8 @@
       ],
       savedJobs: [],
       gmailSyncedIds: [],
+      liveJobs: [],
+      liveJobsFetched: null,
       // ---- Workspace ----
       sops: [
         { id: uid(), title: "Employee Onboarding Checklist", category: "HR", version: "v2.1", fileName: "onboarding-checklist.pdf", url: "assets/docs/onboarding-checklist.pdf", size: 248320, uploadedBy: "Noah Morgan", uploaded: daysAgo(9) },
@@ -131,6 +133,8 @@
     find(coll, id) { return (state[coll] || []).find((x) => x.id === id); },
 
     setProfile(patch) { state.profile = { ...state.profile, ...patch }; persist(state); },
+
+    setLiveJobs(jobs) { state.liveJobs = jobs || []; state.liveJobsFetched = new Date().toISOString(); persist(state); },
 
     // Time clock — per team member
     clockInMember(memberId, memberName, project) {
