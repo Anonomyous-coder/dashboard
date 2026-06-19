@@ -1516,6 +1516,12 @@
       U.confirm("Delete this document?", async () => { await window.DB.removeSop(b.dataset.delsop); U.toast("Deleted"); window.App.rerender(); })));
   }
 
+  // Monday 00:00 of the current week
+  function startOfWeek(d = new Date()) {
+    const x = new Date(d); x.setHours(0, 0, 0, 0);
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    return x;
+  }
   // avatar image (or initials) for a Supabase profile
   function dbAvatar(p) {
     return p && p.avatar_url
@@ -1582,11 +1588,46 @@
       </tr>`;
     }).join("");
 
+    // ---- weekly timesheet ----
+    const ws = startOfWeek(); const wsISO = ws.toISOString().slice(0, 10);
+    const weISO = new Date(ws.getTime() + 6 * 864e5).toISOString().slice(0, 10);
+    const allTs = window.DB.timesheets() || [];
+    let tsBlock = "";
+    if (single) {
+      const isMe = target.id === me.id;
+      const weekHours = personEntries(target.id).filter((e) => e.clock_out && new Date(e.clock_in) >= ws && new Date(e.clock_in) < new Date(ws.getTime() + 7 * 864e5)).reduce((s, e) => s + dur(e), 0) / 36e5;
+      const myTs = allTs.filter((t) => t.user_id === target.id);
+      const thisTs = myTs.find((t) => t.week_start === wsISO);
+      tsBlock = `<div class="card mt-24"><div class="card-head"><h3>Weekly timesheet</h3><div class="ch-actions"><span class="chip">Week of ${U.dateShort(ws.toISOString())}</span></div></div>
+        <div class="card-pad">
+          <div class="flex between center" style="flex-wrap:wrap;gap:12px">
+            <div><div class="faint" style="font-size:12px;text-transform:uppercase;letter-spacing:.05em">This week</div><div class="row-main" style="font-size:20px;font-family:var(--mono)">${weekHours.toFixed(1)}h</div>
+              <div class="mt-8">${thisTs ? U.badge(thisTs.status) : '<span class="chip">Not submitted</span>'}</div></div>
+            ${isMe ? `<button class="btn primary" data-submitts data-week="${wsISO}" data-end="${weISO}" data-hours="${weekHours.toFixed(2)}">${thisTs ? "Resubmit this week" : "Submit this week"}</button>` : ""}
+          </div>
+          ${myTs.length ? `<div class="table-wrap mt-16"><table class="tbl"><thead><tr><th>Week of</th><th>Hours</th><th>Status</th><th>Submitted</th></tr></thead>
+            <tbody>${myTs.map((t) => `<tr><td class="row-main nowrap">${U.dateShort(t.week_start)}</td><td class="muted">${Number(t.hours).toFixed(1)}h</td><td>${U.badge(t.status)}</td><td class="muted nowrap">${U.ago(t.submitted_at)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        </div></div>`;
+    } else {
+      const submitted = allTs.filter((t) => t.status === "submitted");
+      tsBlock = `<div class="card mt-24"><div class="card-head"><h3>Submitted timesheets</h3><div class="ch-actions"><span class="chip">${submitted.length} pending</span></div></div>
+        <div class="table-wrap"><table class="tbl"><thead><tr><th>Member</th><th>Week of</th><th>Hours</th><th>Status</th><th>Submitted</th><th></th></tr></thead>
+          <tbody>${allTs.length ? allTs.map((t) => { const p = window.DB.profile(t.user_id); return `<tr>
+            <td><div class="flex gap-8 center"><div class="avatar" style="width:26px;height:26px;font-size:10px">${dbAvatar(p)}</div><span class="row-main">${U.esc(window.DB.displayName(p))}</span></div></td>
+            <td class="muted nowrap">${U.dateShort(t.week_start)}</td>
+            <td class="row-main">${Number(t.hours).toFixed(1)}h</td>
+            <td>${U.badge(t.status)}</td>
+            <td class="muted nowrap">${U.ago(t.submitted_at)}</td>
+            <td><div class="flex gap-8 nowrap">${t.status === "submitted" ? `<button class="btn sm" data-approvets="${t.id}">Approve</button><button class="btn sm ghost" data-rejectts="${t.id}" style="color:var(--danger)">Reject</button>` : ""}</div></td>
+          </tr>`; }).join("") : `<tr><td colspan="6">${U.empty("🗓", "No timesheets submitted yet.")}</td></tr>`}</tbody></table></div></div>`;
+    }
+
     return `
-      <div class="page-head"><div class="ph-text"><h1>Time Tracker</h1><p>${single ? "Clock in and out and review your hours." : "Clock your team in and out and review everyone's hours."}</p></div></div>
+      <div class="page-head"><div class="ph-text"><h1>Time Tracker</h1><p>${single ? "Clock in and out, and submit your weekly timesheet." : "Clock your team in and out, review hours, and approve weekly timesheets."}</p></div></div>
       <div class="grid cols-4">${stats}</div>
       <div class="card mt-24"><div class="card-head"><h3>${single ? "Your clock" : "Team — clock in / out"}</h3></div>
         <div class="card-pad"><div class="grid cols-3">${cards}</div></div></div>
+      ${tsBlock}
       ${!single ? `<div class="card mt-24"><div class="card-head"><h3>Departments</h3><div class="ch-actions"><button class="btn sm primary" id="addDept">＋ Add department</button></div></div>
         <div class="card-pad"><p class="muted" style="margin-bottom:10px;font-size:13px">These are the options people choose from when they clock in.</p>
         <div class="flex gap-8" style="flex-wrap:wrap">${(window.DB.departments() || []).map((d) => `<span class="chip">${U.esc(d.name)} <span data-deldept="${d.id}" title="Remove" style="cursor:pointer;color:var(--danger);margin-left:4px">✕</span></span>`).join("") || '<span class="faint">No departments yet — add one.</span>'}</div></div></div>` : ""}
@@ -1595,6 +1636,16 @@
         <tbody>${scope.length ? rows : `<tr><td colspan="${single ? 6 : 7}">${U.empty("⏱", "No time logged yet. Clock in to get started.")}</td></tr>`}</tbody></table></div></div>`;
   }
   function timetrackerDBMount(root) {
+    const subBtn = root.querySelector("[data-submitts]");
+    if (subBtn) subBtn.onclick = async () => {
+      try {
+        await window.DB.submitTimesheet({ week_start: subBtn.dataset.week, week_end: subBtn.dataset.end, hours: Number(subBtn.dataset.hours) || 0 });
+        U.toast("Timesheet submitted — your admin was notified", "success"); window.App.rerender();
+      } catch (e) { U.toast("Couldn't submit: " + (e.message || e), "error"); }
+    };
+    root.querySelectorAll("[data-approvets]").forEach((b) => (b.onclick = async () => { await window.DB.reviewTimesheet(b.dataset.approvets, "approved"); U.toast("Approved", "success"); window.App.rerender(); }));
+    root.querySelectorAll("[data-rejectts]").forEach((b) => (b.onclick = async () => { await window.DB.reviewTimesheet(b.dataset.rejectts, "rejected"); U.toast("Rejected"); window.App.rerender(); }));
+
     const addDeptBtn = root.querySelector("#addDept");
     if (addDeptBtn) addDeptBtn.onclick = () => U.formModal({
       title: "Add department", submitLabel: "Add",

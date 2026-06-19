@@ -8,7 +8,7 @@
   const DB = {
     active: false,
     viewAs: null, // admin "view as member": a profile id being inspected
-    cache: { profiles: [], time_entries: [], contracts: [], notifications: [], departments: [], sops: [] },
+    cache: { profiles: [], time_entries: [], contracts: [], notifications: [], departments: [], sops: [], timesheets: [] },
   };
 
   const c = () => A.client();
@@ -21,13 +21,14 @@
   DB.load = async function () {
     if (!(A && A.enabled && A.user())) return;
     DB.active = true;
-    const [pf, te, ct, nt, dp, sp] = await Promise.all([
+    const [pf, te, ct, nt, dp, sp, ts] = await Promise.all([
       c().from("profiles").select("*").order("created_at", { ascending: true }),
       c().from("time_entries").select("*").order("clock_in", { ascending: false }),
       c().from("contracts").select("*").order("created_at", { ascending: false }),
       c().from("notifications").select("*").order("created_at", { ascending: false }),
       c().from("departments").select("*").order("name", { ascending: true }),
       c().from("sops").select("*").order("created_at", { ascending: false }),
+      c().from("timesheets").select("*").order("week_start", { ascending: false }),
     ]);
     DB.cache.profiles = pf.data || [];
     DB.cache.time_entries = te.data || [];
@@ -35,6 +36,7 @@
     DB.cache.notifications = nt.data || [];
     DB.cache.departments = dp.data || [];
     DB.cache.sops = sp.data || [];
+    DB.cache.timesheets = ts.data || [];
   };
   DB.reload = DB.load;
 
@@ -73,6 +75,19 @@
     }
     await DB.load();
   };
+
+  // ---- timesheets (employees submit weekly; admin reviews) ----
+  DB.timesheets = () => DB.cache.timesheets;
+  DB.submitTimesheet = async (rec) => {
+    rec.user_id = DB.me().id; rec.status = "submitted"; rec.submitted_at = new Date().toISOString(); rec.reviewed_at = null;
+    chk(await c().from("timesheets").upsert(rec, { onConflict: "user_id,week_start" }));
+    const me = DB.me();
+    for (const a of DB.cache.profiles.filter((p) => p.role === "admin")) {
+      await c().from("notifications").insert({ user_id: a.id, type: "timesheet", message: `${DB.displayName(me)} submitted a timesheet (${rec.hours}h, week of ${rec.week_start})` });
+    }
+    await DB.load();
+  };
+  DB.reviewTimesheet = async (id, status) => { chk(await c().from("timesheets").update({ status, reviewed_at: new Date().toISOString() }).eq("id", id)); await DB.load(); };
 
   // ---- SOPs (admin uploads + assigns; employees see only theirs) ----
   DB.sops = () => DB.cache.sops;
