@@ -25,9 +25,19 @@
 
   let current = location.hash.replace("#", "") || "dashboard";
 
+  // Employees only see these sections; admins (and no-login mode) see all.
+  const EMPLOYEE_ROUTES = ["timetracker", "account", "contracts"];
+  function allowedRoutes() {
+    const A = window.Auth;
+    if (A && A.enabled && A.user() && !A.isAdmin()) return EMPLOYEE_ROUTES;
+    return null; // all
+  }
+
   const App = {
     go(route) {
       if (!window.Views[route]) route = "dashboard";
+      const allow = allowedRoutes();
+      if (allow && !allow.includes(route)) route = allow[0];
       current = route;
       location.hash = route;
       this.render();
@@ -46,24 +56,37 @@
     },
     renderNav() {
       const nav = document.getElementById("nav");
-      nav.innerHTML = NAV.map((g) => `
+      const allow = allowedRoutes();
+      nav.innerHTML = NAV.map((g) => {
+        const items = g.items.filter((it) => !allow || allow.includes(it.id));
+        if (!items.length) return "";
+        return `
         <div class="nav-group">
           <div class="nav-group-label">${g.group}</div>
-          ${g.items.map((it) => {
+          ${items.map((it) => {
             const badge = it.badge ? it.badge() : "";
             return `<button class="nav-item ${current === it.id ? "active" : ""}" data-route="${it.id}">
               <span class="ni-icon">${it.icon}</span><span>${it.label}</span>
               ${badge !== "" && badge !== 0 ? `<span class="ni-badge">${badge}</span>` : ""}
             </button>`;
           }).join("")}
-        </div>`).join("");
+        </div>`;
+      }).join("");
       nav.querySelectorAll("[data-route]").forEach((b) => (b.onclick = () => this.go(b.dataset.route)));
     },
     refreshSidebarUser() {
-      const p = S.get().profile;
-      document.getElementById("sidebarAvatar").textContent = U.initials(p.name);
-      document.getElementById("sidebarName").textContent = p.name;
-      document.getElementById("sidebarRole").textContent = p.role || "Member";
+      const A = window.Auth;
+      let name, role;
+      if (A && A.enabled && A.profile()) {
+        const pr = A.profile();
+        name = pr.full_name || pr.email || "User";
+        role = pr.role === "admin" ? "Admin" : "Employee";
+      } else {
+        const p = S.get().profile; name = p.name; role = p.role || "Member";
+      }
+      document.getElementById("sidebarAvatar").textContent = U.initials(name);
+      document.getElementById("sidebarName").textContent = name;
+      document.getElementById("sidebarRole").textContent = role;
     },
     refreshClockPill() {
       const n = Object.keys(S.get().activeClocks || {}).length;
@@ -120,8 +143,70 @@
 
   window.App = App;
 
+  // ---- auth screen ----
+  function renderAuth() {
+    document.getElementById("app").style.display = "none";
+    let mode = "signin";
+    const host = document.createElement("div");
+    host.id = "authScreen";
+    host.style.cssText = "position:fixed;inset:0;display:grid;place-items:center;padding:20px;z-index:500";
+    const draw = () => {
+      host.innerHTML = `
+        <div class="card" style="width:min(420px,100%)">
+          <div class="card-pad">
+            <div class="flex gap-12 center" style="margin-bottom:16px">
+              <div class="brand-mark">◆</div>
+              <div><div class="brand-name" style="color:var(--text);font-size:18px">Workspace</div>
+              <div class="faint" style="font-size:12px">${mode === "signin" ? "Sign in to your workspace" : "Create your account"}</div></div>
+            </div>
+            <form id="authForm">
+              ${mode === "signup" ? `<div class="field"><label>Full name</label><input id="afName" required/></div>` : ""}
+              <div class="field"><label>Email</label><input id="afEmail" type="email" required/></div>
+              <div class="field"><label>Password</label><input id="afPass" type="password" minlength="6" required/></div>
+              <button class="btn primary" type="submit" style="width:100%">${mode === "signin" ? "Sign in" : "Sign up"}</button>
+            </form>
+            <div id="authMsg" style="font-size:12.5px;margin-top:10px;color:var(--text-faint)"></div>
+            <div class="mt-16" style="text-align:center;font-size:13px">
+              ${mode === "signin" ? `New here? <a href="#" id="authToggle" style="color:var(--primary)">Create an account</a>`
+                                  : `Have an account? <a href="#" id="authToggle" style="color:var(--primary)">Sign in</a>`}
+            </div>
+          </div>
+        </div>`;
+      host.querySelector("#authToggle").onclick = (e) => { e.preventDefault(); mode = mode === "signin" ? "signup" : "signin"; draw(); };
+      host.querySelector("#authForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const msg = host.querySelector("#authMsg");
+        msg.style.color = "var(--text-faint)"; msg.textContent = "Working…";
+        const email = host.querySelector("#afEmail").value.trim();
+        const pass = host.querySelector("#afPass").value;
+        try {
+          if (mode === "signup") {
+            const name = host.querySelector("#afName").value.trim();
+            await window.Auth.signUp(email, pass, name);
+            if (!window.Auth.user()) { msg.style.color = "var(--success)"; msg.textContent = "Account created — check your email to confirm, then sign in."; mode = "signin"; return; }
+          } else {
+            await window.Auth.signIn(email, pass);
+          }
+          location.reload();
+        } catch (err) { msg.style.color = "var(--danger)"; msg.textContent = (err && err.message) || String(err); }
+      };
+    };
+    draw();
+    document.body.appendChild(host);
+  }
+
+  function addSignOut() {
+    const f = document.querySelector(".sidebar-footer");
+    if (!f || f.querySelector("#signOutBtn")) return;
+    const b = document.createElement("button");
+    b.id = "signOutBtn"; b.className = "btn ghost sm"; b.textContent = "Sign out";
+    b.style.cssText = "width:100%;margin-top:8px";
+    b.onclick = async () => { await window.Auth.signOut(); location.reload(); };
+    f.appendChild(b);
+  }
+
   // ---- init ----
-  function init() {
+  async function init() {
     // theme
     const savedTheme = localStorage.getItem("wd_theme") || "dark";
     document.documentElement.setAttribute("data-theme", savedTheme);
@@ -130,6 +215,13 @@
       document.documentElement.setAttribute("data-theme", cur);
       localStorage.setItem("wd_theme", cur);
     };
+
+    // auth gate
+    if (window.Auth && window.Auth.enabled) {
+      const loggedIn = await window.Auth.init();
+      if (!loggedIn) { renderAuth(); return; }
+      addSignOut();
+    }
 
     // clock pill click → time tracker
     document.getElementById("clockPill").onclick = () => App.go("timetracker");
