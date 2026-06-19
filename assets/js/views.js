@@ -305,6 +305,7 @@
   Views.timetracker = {
     title: "Time Tracker",
     render() {
+      if (window.DB && window.DB.active) return timetrackerDB();
       const d = S.get();
       const active = d.activeClocks || {};
       // team members excluding the admin (the signed-in profile)
@@ -385,6 +386,7 @@
       </div>`;
     },
     mount(root) {
+      if (window.DB && window.DB.active) return timetrackerDBMount(root);
       root.querySelectorAll("[data-clockin]").forEach((b) => (b.onclick = () => {
         const id = b.dataset.clockin, name = b.dataset.name;
         U.formModal({
@@ -1307,6 +1309,94 @@
         U.confirm("Remove this team member?", () => { S.remove("team", b.dataset.id); U.toast("Removed"); window.App.rerender(); })));
     },
   };
+
+  // ---- Time Tracker in logged-in (Supabase) mode ----
+  function timetrackerDB() {
+    const me = window.DB.me();
+    const admin = window.DB.isAdmin();
+    const single = !admin || !!window.DB.viewAs;     // employees & admin-viewing-as see one person
+    const target = window.DB.target();
+    const entries = window.DB.timeEntries();
+    const people = single ? [target] : window.DB.profiles().filter((p) => p.role !== "admin");
+    const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
+    const dur = (e) => (e.clock_out ? new Date(e.clock_out) : new Date()) - new Date(e.clock_in);
+    const personEntries = (uid) => entries.filter((e) => e.user_id === uid);
+    const scope = single ? personEntries(target.id) : entries.filter((e) => people.some((p) => p.id === e.user_id));
+    const done = scope.filter((e) => e.clock_out);
+    const todayMs = done.filter((e) => isToday(e.clock_in)).reduce((s, e) => s + dur(e), 0);
+    const weekMs = done.filter((e) => Date.now() - new Date(e.clock_in) < 7 * 864e5).reduce((s, e) => s + dur(e), 0);
+    const activeCount = scope.filter((e) => !e.clock_out).length;
+
+    const stats = single
+      ? `${stat({ label: "Status", value: activeCount ? "On the clock" : "Off", icon: "🟢", tone: activeCount ? "success" : "warn" })}
+         ${stat({ label: "Hours today", value: U.hours(todayMs), icon: "📆", tone: "primary" })}
+         ${stat({ label: "Hours this week", value: U.hours(weekMs), icon: "📊", tone: "info" })}
+         ${stat({ label: "Entries", value: done.length, icon: "🧾", tone: "warn" })}`
+      : `${stat({ label: "On the clock now", value: activeCount, icon: "🟢", tone: "success" })}
+         ${stat({ label: "Team hours today", value: U.hours(todayMs), icon: "📆", tone: "primary" })}
+         ${stat({ label: "Team hours this week", value: U.hours(weekMs), icon: "📊", tone: "info" })}
+         ${stat({ label: "Team members", value: people.length, icon: "👥", tone: "warn" })}`;
+
+    const cards = people.map((p) => {
+      const act = window.DB.activeEntryFor(p.id);
+      const todMs = personEntries(p.id).filter((e) => e.clock_out && isToday(e.clock_in)).reduce((s, e) => s + dur(e), 0);
+      return `<div class="card card-pad" style="display:flex;flex-direction:column;gap:12px">
+        <div class="flex gap-12 center">
+          <div class="avatar">${U.initials(window.DB.displayName(p))}</div>
+          <div style="min-width:0"><div class="row-main">${U.esc(window.DB.displayName(p))}${p.id === me.id ? ' <span class="faint">(you)</span>' : ""}</div><div class="row-sub">${U.esc(p.title || p.dept || "")}</div></div>
+          <span class="badge ${act ? "b-active" : "b-draft"}" style="margin-left:auto">${act ? "Active" : "Off"}</span>
+        </div>
+        <div class="flex between center">
+          <div><div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">${act ? "Elapsed" : "Today"}</div>
+            <div class="row-main" style="font-family:var(--mono);font-size:18px" ${act ? `data-since="${act.clock_in}"` : ""}>${act ? U.dur(Date.now() - new Date(act.clock_in)) : U.hours(todMs)}</div></div>
+          ${act ? `<button class="btn danger sm" data-clockout="${act.id}">⏹ Clock out</button>`
+                : `<button class="btn primary sm" data-clockin="${p.id}" data-name="${U.esc(window.DB.displayName(p))}">▶ Clock in</button>`}
+        </div>
+        ${act ? `<div class="faint" style="font-size:12px">${U.esc(act.project || "")} · since ${U.time(act.clock_in)}</div>` : ""}
+      </div>`;
+    }).join("");
+
+    const rows = scope.map((e) => {
+      const p = window.DB.profile(e.user_id);
+      return `<tr>
+        ${single ? "" : `<td><div class="flex gap-8 center"><div class="avatar" style="width:26px;height:26px;font-size:10px">${U.initials(window.DB.displayName(p))}</div><span class="row-main">${U.esc(window.DB.displayName(p))}</span></div></td>`}
+        <td class="muted">${U.esc(e.project || "—")}</td>
+        <td class="muted nowrap">${U.dateShort(e.clock_in)}</td>
+        <td class="muted">${U.time(e.clock_in)}</td>
+        <td class="muted">${e.clock_out ? U.time(e.clock_out) : '<span style="color:var(--success)">active</span>'}</td>
+        <td class="row-main nowrap">${e.clock_out ? U.hours(dur(e)) : "—"}</td>
+        <td>${(admin || e.user_id === me.id) ? `<button class="btn sm ghost" data-deltime="${e.id}" style="color:var(--danger)">Delete</button>` : ""}</td>
+      </tr>`;
+    }).join("");
+
+    return `
+      <div class="page-head"><div class="ph-text"><h1>Time Tracker</h1><p>${single ? "Clock in and out and review your hours." : "Clock your team in and out and review everyone's hours."}</p></div></div>
+      <div class="grid cols-4">${stats}</div>
+      <div class="card mt-24"><div class="card-head"><h3>${single ? "Your clock" : "Team — clock in / out"}</h3></div>
+        <div class="card-pad"><div class="grid cols-3">${cards}</div></div></div>
+      <div class="card mt-24"><div class="card-head"><h3>Timesheet</h3><div class="ch-actions"><span class="chip">${scope.length} entries</span></div></div>
+        <div class="table-wrap"><table class="tbl"><thead><tr>${single ? "" : "<th>Member</th>"}<th>Project</th><th>Date</th><th>In</th><th>Out</th><th>Duration</th><th></th></tr></thead>
+        <tbody>${scope.length ? rows : `<tr><td colspan="${single ? 6 : 7}">${U.empty("⏱", "No time logged yet. Clock in to get started.")}</td></tr>`}</tbody></table></div></div>`;
+  }
+  function timetrackerDBMount(root) {
+    root.querySelectorAll("[data-clockin]").forEach((b) => (b.onclick = () => {
+      const id = b.dataset.clockin, name = b.dataset.name;
+      U.formModal({
+        title: "Clock in — " + name,
+        submitLabel: "Clock in",
+        fields: [{ name: "project", label: "What are you working on?", placeholder: "e.g. Client onboarding", value: "General" }],
+        onSubmit: async (data) => { await window.DB.clockIn(id, data.project || "General"); U.toast("Clocked in", "success"); window.App.rerender(); window.App.refreshClockPill(); },
+      });
+    }));
+    root.querySelectorAll("[data-clockout]").forEach((b) => (b.onclick = async () => {
+      await window.DB.clockOut(b.dataset.clockout); U.toast("Clocked out", "success"); window.App.rerender(); window.App.refreshClockPill();
+    }));
+    root.querySelectorAll("[data-deltime]").forEach((b) => (b.onclick = () =>
+      U.confirm("Delete this time entry?", async () => { await window.DB.removeTimeEntry(b.dataset.deltime); U.toast("Deleted"); window.App.rerender(); })));
+    clearInterval(window.__ctTimer);
+    const cells = root.querySelectorAll("[data-since]");
+    if (cells.length) window.__ctTimer = setInterval(() => { cells.forEach((c) => { c.textContent = U.dur(Date.now() - new Date(c.dataset.since)); }); }, 1000);
+  }
 
   // ---- Team in logged-in (Supabase) mode ----
   function teamDB() {
