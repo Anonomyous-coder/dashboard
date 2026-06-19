@@ -1397,8 +1397,18 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
   /* =========================================================
      5. JOB SEARCH
   ========================================================= */
-  let jobQuery = "", jobType = "all";
+  let jobQuery = "", jobType = "all", jobCategory = "all";
   let jobsLoading = false;
+  const JOB_CATS = [
+    { id: "all", label: "All roles" },
+    { id: "sales", label: "SDR / BDR", tags: ["SDR", "BDR"] },
+    { id: "coding", label: "Medical Coding", tags: ["Medical Coding"] },
+  ];
+  const jobInCat = (j) => {
+    if (jobCategory === "all") return true;
+    const cat = JOB_CATS.find((c) => c.id === jobCategory);
+    return cat && (j.tags || []).some((t) => cat.tags.includes(t));
+  };
   Views.jobsearch = {
     title: "Job Search",
     render() {
@@ -1407,17 +1417,22 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       const source = live ? d.liveJobs : d.jobMarket;
       const savedIds = new Set(d.savedJobs.map((j) => j.id));
       const q = jobQuery.toLowerCase();
+      const catCount = (id) => source.filter((j) => { const c = JOB_CATS.find((x) => x.id === id); return id === "all" || (c && (j.tags || []).some((t) => c.tags.includes(t))); }).length;
       const list = source.filter((j) =>
+        jobInCat(j) &&
         (jobType === "all" || j.type === jobType) &&
         (!q || (j.role + j.company + j.location + (j.tags || []).join(" ")).toLowerCase().includes(q)));
 
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>Job Search</h1><p>Remote SDR / BDR roles${live ? ", live from Adzuna" : ""}. Save any role straight into your applications.</p></div>
+        <div class="ph-text"><h1>Job Search</h1><p>Remote SDR / BDR and medical coding roles${live ? ", live from Adzuna" : ""}. Save any role straight into your applications.</p></div>
         <div class="ph-actions"><button class="btn primary" id="refreshJobs">${jobsLoading ? "Searching…" : "⟳ Refresh from Adzuna"}</button></div>
       </div>
 
       <div class="card card-pad">
+        <div class="flex gap-8" style="flex-wrap:wrap;margin-bottom:14px">
+          ${JOB_CATS.map((c) => `<button class="chip" data-cat="${c.id}" style="${jobCategory === c.id ? "background:var(--primary);color:#04121c;border-color:var(--primary);font-weight:700" : "cursor:pointer"}">${c.label} · ${catCount(c.id)}</button>`).join("")}
+        </div>
         <div class="flex gap-12 center" style="flex-wrap:wrap">
           <input class="search-input" id="jobSearch" placeholder="🔍 Filter role, company, location…" value="${U.esc(jobQuery)}"/>
           <select class="field" id="jobType" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text)">
@@ -1465,6 +1480,7 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       let t;
       search.oninput = () => { clearTimeout(t); t = setTimeout(() => { jobQuery = search.value; window.App.rerender(); const s = document.getElementById("jobSearch"); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 220); };
       root.querySelector("#jobType").onchange = (e) => { jobType = e.target.value; window.App.rerender(); };
+      root.querySelectorAll("[data-cat]").forEach((b) => (b.onclick = () => { jobCategory = b.dataset.cat; window.App.rerender(); }));
 
       const fetchLiveJobs = async (force) => {
         const d = S.get();

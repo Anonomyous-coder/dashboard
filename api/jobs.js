@@ -15,7 +15,9 @@ export default async function handler(req, res) {
   const q = req.query || {};
   const country = (q.country || "us").toLowerCase();
   // Roles we care about (any of these), plus a remote requirement.
-  const whatOr = q.what_or || "SDR BDR \"sales development representative\" \"business development representative\"";
+  const whatOr = q.what_or ||
+    "SDR BDR \"sales development representative\" \"business development representative\" " +
+    "\"medical coder\" \"medical coding\" \"medical billing\" \"coding specialist\" CPC";
   const pages = Math.min(parseInt(q.pages || "5", 10) || 5, 10); // up to ~250 results
 
   const jobs = [];
@@ -34,9 +36,12 @@ export default async function handler(req, res) {
         const title = (o.title || "").toLowerCase();
         const loc = ((o.location && o.location.display_name) || "").toLowerCase();
         const desc = (o.description || "").toLowerCase();
+        const text = title + " " + desc;
         const isRemote = /remote|work from home|wfh|anywhere/.test(title + " " + loc + " " + desc);
-        const isRole = /\b(sdr|bdr|sales development|business development)\b/.test(title + " " + desc);
-        if (!isRemote || !isRole) continue;
+        const isSales = /\b(sdr|bdr|sales development|business development)\b/.test(text);
+        const isCoding = /\b(medical cod|medical bill|coding specialist|cpc\b|ccs\b|icd-?10|inpatient coder|outpatient coder|risk adjustment)\b/.test(text);
+        if (!isRemote || !(isSales || isCoding)) continue;
+        const tag = isCoding ? "Medical Coding" : (/\b(bdr|business development)\b/.test(title) ? "BDR" : "SDR");
         jobs.push({
           id: String(o.id),
           company: (o.company && o.company.display_name) || "—",
@@ -46,7 +51,7 @@ export default async function handler(req, res) {
             ? "$" + Math.round(o.salary_min / 1000) + "k" + (o.salary_max && o.salary_max !== o.salary_min ? "–$" + Math.round(o.salary_max / 1000) + "k" : "")
             : "—",
           type: o.contract_time === "part_time" ? "Part-time" : (o.contract_type === "contract" ? "Contract" : "Full-time"),
-          tags: ["Remote", /\bbdr|business development\b/.test(title) ? "BDR" : "SDR"],
+          tags: ["Remote", tag],
           posted: o.created,
           applyUrl: o.redirect_url || "",
         });
