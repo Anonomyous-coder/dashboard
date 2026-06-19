@@ -9,7 +9,7 @@
     { group: "Personal", items: [
       { id: "dashboard", label: "My Dashboard", icon: "🏠" },
       { id: "applications", label: "Job Applications", icon: "💼", badge: () => S.get().applications.filter((a) => a.status === "interview").length || "" },
-      { id: "timetracker", label: "Time Tracker", icon: "⏱", badge: () => (S.get().activeClock ? "●" : "") },
+      { id: "timetracker", label: "Time Tracker", icon: "⏱", badge: () => Object.keys(S.get().activeClocks || {}).length || "" },
       { id: "insights", label: "Insights", icon: "📈" },
       { id: "jobsearch", label: "Job Search", icon: "🔍", badge: () => S.get().jobMarket.filter((j) => new Date(j.posted).toDateString() === new Date().toDateString()).length || "" },
       { id: "account", label: "My Account", icon: "👤" },
@@ -66,17 +66,11 @@
       document.getElementById("sidebarRole").textContent = p.role || "Member";
     },
     refreshClockPill() {
-      const a = S.get().activeClock;
+      const n = Object.keys(S.get().activeClocks || {}).length;
       const pill = document.getElementById("clockPill");
       const text = document.getElementById("clockPillText");
-      pill.classList.toggle("on", !!a);
-      text.textContent = a ? "Clocked in" : "Clocked out";
-      clearInterval(window.__pillTimer);
-      if (a) {
-        const upd = () => { const ac = S.get().activeClock; if (!ac) { clearInterval(window.__pillTimer); App.refreshClockPill(); return; } text.textContent = "On the clock · " + U.dur(Date.now() - new Date(ac.clockIn)); };
-        upd();
-        window.__pillTimer = setInterval(upd, 1000);
-      }
+      pill.classList.toggle("on", n > 0);
+      text.textContent = n > 0 ? `${n} on the clock` : "Team clocked out";
       this.renderNav();
     },
     async runGmailSync() {

@@ -257,7 +257,7 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
 .b-offer { background: var(--success-soft); color: var(--success); }
 .b-rejected { background: var(--danger-soft); color: var(--danger); }
 .b-draft, .b-pending { background: var(--warn-soft); color: var(--warn); }
-.b-sent { background: var(--info-soft); color: var(--info); }
+.b-sent, .b-invited { background: var(--info-soft); color: var(--info); }
 .b-signed, .b-active, .b-paid, .b-approved, .b-hired { background: var(--success-soft); color: var(--success); }
 .b-declined, .b-expired, .b-overdue { background: var(--danger-soft); color: var(--danger); }
 .b-screening, .b-review { background: var(--primary-soft); color: var(--primary); }

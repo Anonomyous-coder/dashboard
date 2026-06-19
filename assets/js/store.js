@@ -31,12 +31,13 @@
         { id: uid(), company: "Figma", role: "Senior Ops Analyst", status: "rejected", location: "New York, NY", salary: "$125k", source: "LinkedIn", applied: daysAgo(40), notes: "", interviewDate: null },
       ],
       timeEntries: [
-        { id: uid(), project: "Client Onboarding", note: "Kickoff + setup", clockIn: daysAgo(1), clockOut: new Date(Date.now() - 864e5 + 6.5 * 36e5).toISOString() },
-        { id: uid(), project: "Internal Ops", note: "Process docs", clockIn: daysAgo(2), clockOut: new Date(Date.now() - 2 * 864e5 + 7.2 * 36e5).toISOString() },
-        { id: uid(), project: "Client Onboarding", note: "Weekly sync", clockIn: daysAgo(3), clockOut: new Date(Date.now() - 3 * 864e5 + 4 * 36e5).toISOString() },
-        { id: uid(), project: "Recruiting", note: "Screening calls", clockIn: daysAgo(4), clockOut: new Date(Date.now() - 4 * 864e5 + 5.5 * 36e5).toISOString() },
+        { id: uid(), member: "Jordan Lee", project: "Month-end close", clockIn: daysAgo(1), clockOut: new Date(Date.now() - 864e5 + 6.5 * 36e5).toISOString() },
+        { id: uid(), member: "Sam Rivera", project: "Campaign launch", clockIn: daysAgo(1), clockOut: new Date(Date.now() - 864e5 + 5 * 36e5).toISOString() },
+        { id: uid(), member: "Pat Quinn", project: "Support queue", clockIn: daysAgo(2), clockOut: new Date(Date.now() - 2 * 864e5 + 7.2 * 36e5).toISOString() },
+        { id: uid(), member: "Jamie Fox", project: "Design system", clockIn: daysAgo(2), clockOut: new Date(Date.now() - 2 * 864e5 + 4 * 36e5).toISOString() },
+        { id: uid(), member: "Jordan Lee", project: "Payroll run", clockIn: daysAgo(3), clockOut: new Date(Date.now() - 3 * 864e5 + 3.5 * 36e5).toISOString() },
       ],
-      activeClock: null, // { project, note, clockIn }
+      activeClocks: {}, // { memberId: { member, project, clockIn } }
       jobMarket: [
         { id: uid(), company: "OpenAI", role: "Operations Program Manager", location: "Remote", salary: "$150k–$180k", type: "Full-time", tags: ["Operations", "Remote"], posted: daysAgo(0) },
         { id: uid(), company: "Anthropic", role: "Business Operations Lead", location: "San Francisco, CA", salary: "$165k–$200k", type: "Full-time", tags: ["Operations", "Strategy"], posted: daysAgo(1) },
@@ -57,11 +58,11 @@
         { id: uid(), title: "Brand Style Guide", category: "Marketing", version: "v1.0", fileName: "brand-guide.pdf", size: 1820400, uploadedBy: "Sam Rivera", uploaded: daysAgo(45) },
       ],
       contracts: [
-        { id: uid(), title: "Master Services Agreement", party: "Acme Corp", value: 48000, status: "signed", sent: daysAgo(20), due: daysAgo(6) },
-        { id: uid(), title: "NDA — Mutual", party: "BlueSky Labs", value: 0, status: "sent", sent: daysAgo(4), due: daysAhead(10) },
-        { id: uid(), title: "Contractor Agreement", party: "Jamie Fox", value: 12000, status: "draft", sent: null, due: daysAhead(14) },
-        { id: uid(), title: "SOW — Q3 Engagement", party: "Northwind Inc", value: 75000, status: "signed", sent: daysAgo(33), due: daysAgo(18) },
-        { id: uid(), title: "Renewal Agreement", party: "Acme Corp", value: 52000, status: "expired", sent: daysAgo(120), due: daysAgo(30) },
+        { id: uid(), title: "Employment Agreement", assignedTo: "Jordan Lee", assignedEmail: "jordan.lee@email.com", party: "Jordan Lee", fileName: "employment-agreement.pdf", value: 0, status: "signed", sent: daysAgo(20), due: daysAgo(6) },
+        { id: uid(), title: "NDA — Confidentiality", assignedTo: "Sam Rivera", assignedEmail: "sam.rivera@email.com", party: "Sam Rivera", fileName: "nda.pdf", value: 0, status: "invited", sent: daysAgo(4), due: daysAhead(10) },
+        { id: uid(), title: "Contractor Agreement", assignedTo: "Jamie Fox", assignedEmail: "jamie.fox@email.com", party: "Jamie Fox", fileName: "contractor-agreement.docx", value: 12000, status: "draft", sent: null, due: daysAhead(14) },
+        { id: uid(), title: "Equipment Policy Acknowledgement", assignedTo: "Pat Quinn", assignedEmail: "pat.quinn@email.com", party: "Pat Quinn", fileName: "equipment-policy.pdf", value: 0, status: "signed", sent: daysAgo(33), due: daysAgo(18) },
+        { id: uid(), title: "Offer Letter", assignedTo: "Jordan Lee", assignedEmail: "jordan.lee@email.com", party: "Jordan Lee", fileName: "offer-letter.pdf", value: 0, status: "expired", sent: daysAgo(120), due: daysAgo(30) },
       ],
       transactions: [
         { id: uid(), type: "payroll", desc: "Bi-weekly payroll run", category: "Salaries", amount: 28400, status: "paid", date: daysAgo(5) },
@@ -131,22 +132,18 @@
 
     setProfile(patch) { state.profile = { ...state.profile, ...patch }; persist(state); },
 
-    // Time clock
-    clockIn(project, note) {
-      state.activeClock = { project: project || "General", note: note || "", clockIn: new Date().toISOString() };
+    // Time clock — per team member
+    clockInMember(memberId, memberName, project) {
+      if (!state.activeClocks) state.activeClocks = {};
+      state.activeClocks[memberId] = { member: memberName, project: project || "General", clockIn: new Date().toISOString() };
       persist(state);
     },
-    clockOut() {
-      if (!state.activeClock) return null;
-      const entry = {
-        id: uid(),
-        project: state.activeClock.project,
-        note: state.activeClock.note,
-        clockIn: state.activeClock.clockIn,
-        clockOut: new Date().toISOString(),
-      };
+    clockOutMember(memberId) {
+      const a = state.activeClocks && state.activeClocks[memberId];
+      if (!a) return null;
+      const entry = { id: uid(), memberId, member: a.member, project: a.project, clockIn: a.clockIn, clockOut: new Date().toISOString() };
       state.timeEntries.unshift(entry);
-      state.activeClock = null;
+      delete state.activeClocks[memberId];
       persist(state);
       return entry;
     },

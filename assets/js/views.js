@@ -306,81 +306,107 @@
     title: "Time Tracker",
     render() {
       const d = S.get();
-      const active = d.activeClock;
-      const todayMs = d.timeEntries
-        .filter((e) => new Date(e.clockIn).toDateString() === new Date().toDateString())
-        .reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
-      const weekMs = d.timeEntries
-        .filter((e) => Date.now() - new Date(e.clockIn) < 7 * 864e5)
-        .reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
-      const earnings = (weekMs / 36e5) * (d.profile.hourlyRate || 0);
+      const active = d.activeClocks || {};
+      // team members excluding the admin (the signed-in profile)
+      const members = d.team.filter((m) => m.name !== d.profile.name);
+      const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
+      const memberMs = (name, todayOnly) =>
+        d.timeEntries
+          .filter((e) => e.member === name && (!todayOnly || isToday(e.clockIn)))
+          .reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
+
+      const todayMs = d.timeEntries.filter((e) => isToday(e.clockIn)).reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
+      const weekMs = d.timeEntries.filter((e) => Date.now() - new Date(e.clockIn) < 7 * 864e5).reduce((s, e) => s + (new Date(e.clockOut) - new Date(e.clockIn)), 0);
+      const activeCount = Object.keys(active).length;
 
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>Time Tracker</h1><p>Clock in and out, and review your logged hours.</p></div>
+        <div class="ph-text"><h1>Time Tracker</h1><p>Clock your team in and out and review everyone's logged hours.</p></div>
       </div>
 
-      <div class="grid cols-2">
-        <div class="card card-pad" style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center">
-          <div class="clock-pill ${active ? "on" : ""}"><span class="dot"></span><span>${active ? "Clocked in" : "Clocked out"}</span></div>
-          <div class="timer-display" id="liveTimer">${active ? U.dur(Date.now() - new Date(active.clockIn)) : "00:00:00"}</div>
-          ${active ? `<div class="muted">Working on <strong>${U.esc(active.project)}</strong>${active.note ? " · " + U.esc(active.note) : ""}</div>
-                      <div class="faint">Since ${U.time(active.clockIn)}</div>
-                      <button class="btn danger" id="clockBtn" style="min-width:160px">⏹ Clock out</button>`
-            : `<input class="search-input" id="ctProject" placeholder="What are you working on?" style="max-width:320px;text-align:center"/>
-               <button class="btn primary" id="clockBtn" style="min-width:160px">▶ Clock in</button>`}
-        </div>
+      <div class="grid cols-4">
+        ${stat({ label: "On the clock now", value: activeCount, icon: "🟢", tone: "success" })}
+        ${stat({ label: "Team hours today", value: U.hours(todayMs), icon: "📆", tone: "primary" })}
+        ${stat({ label: "Team hours this week", value: U.hours(weekMs), icon: "📊", tone: "info" })}
+        ${stat({ label: "Team members", value: members.length, icon: "👥", tone: "warn" })}
+      </div>
 
-        <div class="grid" style="grid-template-columns:1fr 1fr;align-content:start">
-          ${stat({ label: "Today", value: U.hours(todayMs), icon: "📆", tone: "primary" })}
-          ${stat({ label: "This week", value: U.hours(weekMs), icon: "📊", tone: "info" })}
-          ${stat({ label: "Est. earnings (wk)", value: U.money(earnings), icon: "💵", tone: "success" })}
-          ${stat({ label: "Entries", value: d.timeEntries.length, icon: "🧾", tone: "warn" })}
+      <div class="card mt-24">
+        <div class="card-head"><h3>Team — clock in / out</h3></div>
+        <div class="card-pad">
+          ${members.length ? `<div class="grid cols-3">
+            ${members.map((m) => {
+              const a = active[m.id];
+              return `<div class="card card-pad" style="gap:12px;display:flex;flex-direction:column">
+                <div class="flex gap-12 center">
+                  <div class="avatar">${U.initials(m.name)}</div>
+                  <div style="min-width:0">
+                    <div class="row-main">${U.esc(m.name)}</div>
+                    <div class="row-sub">${U.esc(m.title || m.dept || "")}</div>
+                  </div>
+                  <span class="badge ${a ? "b-active" : "b-draft"}" style="margin-left:auto">${a ? "Active" : "Off"}</span>
+                </div>
+                <div class="flex between center">
+                  <div>
+                    <div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.05em">${a ? "Elapsed" : "Today"}</div>
+                    <div class="row-main" style="font-family:var(--mono);font-size:18px" ${a ? `data-since="${a.clockIn}"` : ""}>${a ? U.dur(Date.now() - new Date(a.clockIn)) : U.hours(memberMs(m.name, true))}</div>
+                  </div>
+                  ${a
+                    ? `<button class="btn danger sm" data-clockout="${m.id}">⏹ Clock out</button>`
+                    : `<button class="btn primary sm" data-clockin="${m.id}" data-name="${U.esc(m.name)}">▶ Clock in</button>`}
+                </div>
+                ${a ? `<div class="faint" style="font-size:12px">${U.esc(a.project)} · since ${U.time(a.clockIn)}</div>` : ""}
+              </div>`;
+            }).join("")}
+          </div>` : U.empty("👥", "No team members yet. Add them in the Team section.")}
         </div>
       </div>
 
       <div class="card mt-24">
-        <div class="card-head"><h3>Time entries</h3></div>
+        <div class="card-head"><h3>Timesheet</h3><div class="ch-actions"><span class="chip">${d.timeEntries.length} entries</span></div></div>
         <div class="table-wrap">
           <table class="tbl">
-            <thead><tr><th>Project</th><th>Note</th><th>Date</th><th>Clock in</th><th>Clock out</th><th>Duration</th><th></th></tr></thead>
+            <thead><tr><th>Member</th><th>Project</th><th>Date</th><th>Clock in</th><th>Clock out</th><th>Duration</th><th></th></tr></thead>
             <tbody>
               ${d.timeEntries.length ? d.timeEntries.map((e) => `
                 <tr>
-                  <td class="row-main">${U.esc(e.project)}</td>
-                  <td class="muted">${U.esc(e.note || "—")}</td>
+                  <td><div class="flex gap-8 center"><div class="avatar" style="width:26px;height:26px;font-size:10px">${U.initials(e.member || "?")}</div><span class="row-main">${U.esc(e.member || "—")}</span></div></td>
+                  <td class="muted">${U.esc(e.project)}</td>
                   <td class="muted nowrap">${U.dateShort(e.clockIn)}</td>
                   <td class="muted">${U.time(e.clockIn)}</td>
                   <td class="muted">${U.time(e.clockOut)}</td>
                   <td class="row-main nowrap">${U.hours(new Date(e.clockOut) - new Date(e.clockIn))}</td>
                   <td><button class="btn sm ghost" data-act="del" data-id="${e.id}" style="color:var(--danger)">Delete</button></td>
                 </tr>`).join("")
-                : `<tr><td colspan="7">${U.empty("⏱", "No time logged yet. Clock in to get started.")}</td></tr>`}
+                : `<tr><td colspan="7">${U.empty("⏱", "No time logged yet. Clock a team member in to get started.")}</td></tr>`}
             </tbody>
           </table>
         </div>
       </div>`;
     },
     mount(root) {
-      const d = S.get();
-      const btn = root.querySelector("#clockBtn");
-      if (btn) btn.onclick = () => {
-        if (d.activeClock) { S.clockOut(); U.toast("Clocked out", "success"); }
-        else { const p = (root.querySelector("#ctProject")?.value || "").trim(); S.clockIn(p || "General"); U.toast("Clocked in", "success"); }
-        window.App.rerender();
-        window.App.refreshClockPill();
-      };
+      root.querySelectorAll("[data-clockin]").forEach((b) => (b.onclick = () => {
+        const id = b.dataset.clockin, name = b.dataset.name;
+        U.formModal({
+          title: "Clock in — " + name,
+          submitLabel: "Clock in",
+          fields: [{ name: "project", label: "What are they working on?", placeholder: "e.g. Client onboarding", value: "General" }],
+          onSubmit: (data) => { S.clockInMember(id, name, data.project || "General"); U.toast(name + " clocked in", "success"); window.App.rerender(); window.App.refreshClockPill(); },
+        });
+      }));
+      root.querySelectorAll("[data-clockout]").forEach((b) => (b.onclick = () => {
+        const e = S.clockOutMember(b.dataset.clockout);
+        U.toast((e ? e.member : "Member") + " clocked out", "success"); window.App.rerender(); window.App.refreshClockPill();
+      }));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
         U.confirm("Delete this time entry?", () => { S.remove("timeEntries", b.dataset.id); U.toast("Deleted"); window.App.rerender(); })));
 
-      // live timer
-      const timer = root.querySelector("#liveTimer");
-      if (timer && d.activeClock) {
-        clearInterval(window.__ctTimer);
+      // live elapsed timers for active members
+      clearInterval(window.__ctTimer);
+      const cells = root.querySelectorAll("[data-since]");
+      if (cells.length) {
         window.__ctTimer = setInterval(() => {
-          const a = S.get().activeClock;
-          if (!a) { clearInterval(window.__ctTimer); return; }
-          timer.textContent = U.dur(Date.now() - new Date(a.clockIn));
+          cells.forEach((c) => { c.textContent = U.dur(Date.now() - new Date(c.dataset.since)); });
         }, 1000);
       }
     },
@@ -720,7 +746,6 @@
   /* =========================================================
      8. CONTRACTS
   ========================================================= */
-  const CONTRACT_STATUSES = ["draft", "sent", "signed", "declined", "expired"];
   Views.contracts = {
     title: "Contracts",
     render() {
@@ -728,13 +753,13 @@
       const totalValue = d.contracts.filter((c) => c.status === "signed").reduce((s, c) => s + c.value, 0);
       return `
       <div class="page-head">
-        <div class="ph-text"><h1>Contracts</h1><p>Draft, send out, and track the status of agreements.</p></div>
-        <div class="ph-actions"><button class="btn primary" id="addContract">＋ New contract</button></div>
+        <div class="ph-text"><h1>Contracts</h1><p>Upload a contract, assign it to an employee, and send them an invite to sign.</p></div>
+        <div class="ph-actions"><button class="btn primary" id="addContract">⬆ Upload contract</button></div>
       </div>
 
       <div class="grid cols-4">
         ${stat({ label: "Total contracts", value: d.contracts.length, icon: "📄", tone: "primary" })}
-        ${stat({ label: "Awaiting signature", value: d.contracts.filter((c) => c.status === "sent").length, icon: "✍️", tone: "info" })}
+        ${stat({ label: "Awaiting signature", value: d.contracts.filter((c) => c.status === "invited").length, icon: "✍️", tone: "info" })}
         ${stat({ label: "Signed", value: d.contracts.filter((c) => c.status === "signed").length, icon: "✅", tone: "success" })}
         ${stat({ label: "Signed value", value: U.money(totalValue), icon: "💰", tone: "warn" })}
       </div>
@@ -743,56 +768,98 @@
         <div class="card-head"><h3>All contracts</h3></div>
         <div class="table-wrap">
           <table class="tbl">
-            <thead><tr><th>Contract</th><th>Counterparty</th><th>Value</th><th>Status</th><th>Sent</th><th>Due</th><th></th></tr></thead>
+            <thead><tr><th>Contract</th><th>Assigned to</th><th>Value</th><th>Status</th><th>Sent</th><th>Due</th><th></th></tr></thead>
             <tbody>
               ${d.contracts.length ? d.contracts.map((c) => `
                 <tr>
-                  <td class="row-main">${U.esc(c.title)}</td>
-                  <td class="muted">${U.esc(c.party)}</td>
+                  <td><div class="row-main">${U.esc(c.title)}</div>${c.fileName ? `<div class="row-sub">📎 ${U.esc(c.fileName)}</div>` : ""}</td>
+                  <td>${c.assignedTo ? `<div class="row-main">${U.esc(c.assignedTo)}</div><div class="row-sub">${U.esc(c.assignedEmail || c.party || "")}</div>` : `<span class="muted">${U.esc(c.party || "—")}</span>`}</td>
                   <td class="muted">${c.value ? U.money(c.value) : "—"}</td>
                   <td>${U.badge(c.status)}</td>
                   <td class="muted nowrap">${c.sent ? U.dateShort(c.sent) : "—"}</td>
                   <td class="muted nowrap">${U.dateShort(c.due)}</td>
                   <td>
                     <div class="flex gap-8 nowrap">
-                      ${c.status === "draft" ? `<button class="btn sm" data-send="${c.id}">Send</button>` : ""}
+                      ${c.status === "draft" || c.status === "expired" ? `<button class="btn sm" data-invite="${c.id}">✉️ Invite</button>` : ""}
+                      ${c.status === "invited" ? `<button class="btn sm" data-resend="${c.id}">Resend</button><button class="btn sm" data-sign="${c.id}">Mark signed</button>` : ""}
                       <button class="btn sm ghost" data-act="edit" data-id="${c.id}">Edit</button>
                       <button class="btn sm ghost" data-act="del" data-id="${c.id}" style="color:var(--danger)">Delete</button>
                     </div>
                   </td>
                 </tr>`).join("")
-                : `<tr><td colspan="7">${U.empty("📄", "No contracts yet.")}</td></tr>`}
+                : `<tr><td colspan="7">${U.empty("📄", "No contracts yet. Upload one to get started.")}</td></tr>`}
             </tbody>
           </table>
         </div>
       </div>`;
     },
     mount(root) {
+      const team = S.get().team;
       const open = (c) => {
-        U.formModal({
-          title: c ? "Edit contract" : "New contract",
-          submitLabel: c ? "Save" : "Create",
-          values: c || {},
-          fields: [
-            { name: "title", label: "Contract title", required: true },
-            { name: "party", label: "Counterparty", required: true, half: true },
-            { name: "value", label: "Value ($)", type: "number", half: true },
-            { name: "status", label: "Status", type: "select", options: CONTRACT_STATUSES.map((s) => ({ value: s, label: U.cap(s) })), half: true },
-            { name: "due", label: "Due date", type: "date", half: true },
-          ],
-          onSubmit: (data) => {
-            data.value = Number(data.value) || 0;
-            data.due = data.due ? new Date(data.due).toISOString() : new Date().toISOString();
-            if (c) { S.update("contracts", c.id, data); U.toast("Updated", "success"); }
-            else { S.add("contracts", { ...data, sent: data.status === "draft" ? null : new Date().toISOString() }); U.toast("Created", "success"); }
-            window.App.rerender();
+        U.modal({
+          title: c ? "Edit contract" : "Upload contract",
+          body: `
+            <div class="field"><label>Contract title</label><input id="cTitle" value="${U.esc(c ? c.title : "")}" placeholder="e.g. Employment Agreement"/></div>
+            <div class="field"><label>Assign to employee</label>
+              <select id="cAssign">${team.map((m) => `<option value="${U.esc(m.name)}" data-email="${U.esc(m.email || "")}" ${c && c.assignedTo === m.name ? "selected" : ""}>${U.esc(m.name)}${m.email ? " — " + U.esc(m.email) : ""}</option>`).join("")}</select>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Value ($)</label><input id="cValue" type="number" value="${c ? c.value : ""}" placeholder="0"/></div>
+              <div class="field"><label>Due date</label><input id="cDue" type="date" value="${c && c.due ? new Date(c.due).toISOString().slice(0, 10) : ""}"/></div>
+            </div>
+            <div class="field"><label>Contract file</label><input id="cFile" type="file" accept=".pdf,.doc,.docx"/>
+              <div class="faint" id="cFileName" style="font-size:12px;margin-top:4px">${c && c.fileName ? "Current: " + U.esc(c.fileName) : "PDF or Word document"}</div>
+            </div>`,
+          footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="cSave">${c ? "Save" : "Upload"}</button>`,
+          onMount: (card) => {
+            let fileName = c ? c.fileName : "";
+            card.querySelector("#cFile").onchange = (e) => {
+              const f = e.target.files[0]; if (f) { fileName = f.name; card.querySelector("#cFileName").textContent = "Selected: " + f.name; }
+            };
+            card.querySelector("#cSave").onclick = () => {
+              const title = card.querySelector("#cTitle").value.trim();
+              if (!title) { U.toast("Enter a contract title", "error"); return; }
+              const sel = card.querySelector("#cAssign");
+              const assignedTo = sel.value;
+              const assignedEmail = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.email : "";
+              const value = Number(card.querySelector("#cValue").value) || 0;
+              const dueV = card.querySelector("#cDue").value;
+              const due = dueV ? new Date(dueV).toISOString() : new Date().toISOString();
+              const rec = { title, assignedTo, assignedEmail, party: assignedTo, value, due, fileName };
+              if (c) { S.update("contracts", c.id, rec); U.toast("Contract updated", "success"); }
+              else { S.add("contracts", { ...rec, status: "draft", sent: null }); U.toast("Contract uploaded", "success"); }
+              U.closeModal(); window.App.rerender();
+            };
           },
         });
       };
+
+      const invite = (c) => {
+        const profile = S.get().profile;
+        const subject = encodeURIComponent(`Action required: please sign "${c.title}"`);
+        const body = encodeURIComponent(
+          `Hi ${c.assignedTo || ""},\n\n` +
+          `You've been sent a contract to review and sign: "${c.title}".\n` +
+          (c.fileName ? `Document: ${c.fileName}\n` : "") +
+          (c.value ? `Value: ${U.money(c.value)}\n` : "") +
+          `\nPlease review and reply to this email to confirm your signature.\n\n` +
+          `Thanks,\n${profile.name}${profile.title ? "\n" + profile.title : ""}`
+        );
+        window.location.href = `mailto:${encodeURIComponent(c.assignedEmail || "")}?subject=${subject}&body=${body}`;
+        S.update("contracts", c.id, { status: "invited", sent: new Date().toISOString() });
+        U.toast("Invite opened in your email app ✉️", "success");
+        window.App.rerender();
+      };
+
       root.querySelector("#addContract").onclick = () => open(null);
-      root.querySelectorAll("[data-send]").forEach((b) => (b.onclick = () => {
-        S.update("contracts", b.dataset.send, { status: "sent", sent: new Date().toISOString() });
-        U.toast("Contract sent ✉️", "success"); window.App.rerender();
+      root.querySelectorAll("[data-invite]").forEach((b) => (b.onclick = () => {
+        const c = S.find("contracts", b.dataset.invite);
+        if (!c.assignedEmail) { U.toast("This employee has no email — add one in Team", "error"); return; }
+        invite(c);
+      }));
+      root.querySelectorAll("[data-resend]").forEach((b) => (b.onclick = () => invite(S.find("contracts", b.dataset.resend))));
+      root.querySelectorAll("[data-sign]").forEach((b) => (b.onclick = () => {
+        S.update("contracts", b.dataset.sign, { status: "signed" }); U.toast("Marked as signed ✅", "success"); window.App.rerender();
       }));
       root.querySelectorAll('[data-act="edit"]').forEach((b) => (b.onclick = () => open(S.find("contracts", b.dataset.id))));
       root.querySelectorAll('[data-act="del"]').forEach((b) => (b.onclick = () =>
