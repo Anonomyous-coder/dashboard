@@ -731,7 +731,11 @@
 
       <div class="grid cols-2">
         <div class="card card-pad" style="text-align:center">
-          <div class="avatar" style="width:84px;height:84px;font-size:30px;margin:0 auto 14px">${U.initials(window.DB.displayName(p))}</div>
+          <div class="avatar" id="avatarBox" title="Click to change photo" style="width:88px;height:88px;font-size:30px;margin:0 auto 10px;cursor:pointer">
+            ${p.avatar_url ? `<img src="${U.esc(p.avatar_url)}" alt="" style="width:100%;height:100%;object-fit:cover"/>` : U.initials(window.DB.displayName(p))}
+          </div>
+          <input type="file" id="avatarInput" accept="image/*" style="display:none"/>
+          <div style="margin-bottom:8px"><button class="btn sm ghost" id="changePhoto">📷 Change photo</button></div>
           <div class="row-main" style="font-size:18px">${U.esc(window.DB.displayName(p))}</div>
           <div class="muted">${U.esc(p.title || "")}</div>
           <div class="flex gap-8 center mt-16" style="justify-content:center;flex-wrap:wrap">
@@ -772,6 +776,33 @@
   }
   function accountDBMount(root) {
     const p = window.DB.target();
+    const inp = root.querySelector("#avatarInput");
+    const pick = () => inp.click();
+    const box = root.querySelector("#avatarBox");
+    if (box) box.onclick = pick;
+    const cp = root.querySelector("#changePhoto");
+    if (cp) cp.onclick = pick;
+    if (inp) inp.onchange = (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        const img = new Image();
+        img.onload = async () => {
+          const max = 256, sc = Math.min(1, max / Math.max(img.width, img.height));
+          const cw = Math.round(img.width * sc), ch = Math.round(img.height * sc);
+          const cv = document.createElement("canvas"); cv.width = cw; cv.height = ch;
+          cv.getContext("2d").drawImage(img, 0, 0, cw, ch);
+          const url = cv.toDataURL("image/jpeg", 0.85);
+          await window.DB.updateProfile(p.id, { avatar_url: url });
+          if (window.Auth) await window.Auth.reloadProfile();
+          U.toast("Photo updated", "success");
+          window.App.refreshSidebarUser();
+          window.App.rerender();
+        };
+        img.src = rd.result;
+      };
+      rd.readAsDataURL(f);
+    };
     root.querySelector("#profileFormDB").onsubmit = async (e) => {
       e.preventDefault();
       const f = e.target;

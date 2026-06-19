@@ -93,7 +93,10 @@
       } else {
         const p = S.get().profile; name = p.name; role = p.role || "Member";
       }
-      document.getElementById("sidebarAvatar").textContent = U.initials(name);
+      const av = document.getElementById("sidebarAvatar");
+      const pic = A && A.profile() && A.profile().avatar_url;
+      if (pic) av.innerHTML = `<img src="${pic}" alt="" style="width:100%;height:100%;object-fit:cover"/>`;
+      else av.textContent = U.initials(name);
       document.getElementById("sidebarName").textContent = name;
       document.getElementById("sidebarRole").textContent = role;
     },
