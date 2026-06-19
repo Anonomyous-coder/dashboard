@@ -2399,6 +2399,13 @@ window.APP_CONFIG = {
     },
   };
 
+  // avatar image (or initials) for a Supabase profile
+  function dbAvatar(p) {
+    return p && p.avatar_url
+      ? `<img src="${U.esc(p.avatar_url)}" alt="" style="width:100%;height:100%;object-fit:cover"/>`
+      : U.initials(window.DB.displayName(p));
+  }
+
   // ---- Time Tracker in logged-in (Supabase) mode ----
   function timetrackerDB() {
     const me = window.DB.me();
@@ -2431,7 +2438,7 @@ window.APP_CONFIG = {
       const todMs = personEntries(p.id).filter((e) => e.clock_out && isToday(e.clock_in)).reduce((s, e) => s + dur(e), 0);
       return `<div class="card card-pad" style="display:flex;flex-direction:column;gap:12px">
         <div class="flex gap-12 center">
-          <div class="avatar">${U.initials(window.DB.displayName(p))}</div>
+          <div class="avatar">${dbAvatar(p)}</div>
           <div style="min-width:0"><div class="row-main">${U.esc(window.DB.displayName(p))}${p.id === me.id ? ' <span class="faint">(you)</span>' : ""}</div><div class="row-sub">${U.esc(p.title || p.dept || "")}</div></div>
           <span class="badge ${act ? "b-active" : "b-draft"}" style="margin-left:auto">${act ? "Active" : "Off"}</span>
         </div>
@@ -2448,7 +2455,7 @@ window.APP_CONFIG = {
     const rows = scope.map((e) => {
       const p = window.DB.profile(e.user_id);
       return `<tr>
-        ${single ? "" : `<td><div class="flex gap-8 center"><div class="avatar" style="width:26px;height:26px;font-size:10px">${U.initials(window.DB.displayName(p))}</div><span class="row-main">${U.esc(window.DB.displayName(p))}</span></div></td>`}
+        ${single ? "" : `<td><div class="flex gap-8 center"><div class="avatar" style="width:26px;height:26px;font-size:10px">${dbAvatar(p)}</div><span class="row-main">${U.esc(window.DB.displayName(p))}</span></div></td>`}
         <td class="muted">${U.esc(e.project || "—")}</td>
         <td class="muted nowrap">${U.dateShort(e.clock_in)}</td>
         <td class="muted">${U.time(e.clock_in)}</td>
@@ -2631,7 +2638,7 @@ window.APP_CONFIG = {
           <div class="card card-pad">
             <div class="flex between center">
               <div class="flex gap-12 center">
-                <div class="avatar" style="width:46px;height:46px;font-size:16px">${U.initials(window.DB.displayName(m))}</div>
+                <div class="avatar" style="width:46px;height:46px;font-size:16px">${dbAvatar(m)}</div>
                 <div><div class="row-main">${U.esc(window.DB.displayName(m))}${m.id === me.id ? ' <span class="faint">(you)</span>' : ""}</div><div class="row-sub">${U.esc(m.title || m.dept || m.email || "")}</div></div>
               </div>
               <span class="badge b-${m.role === "admin" ? "active" : "review"}">${U.cap(m.role || "employee")}</span>
