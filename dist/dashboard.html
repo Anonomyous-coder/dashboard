@@ -2097,23 +2097,19 @@ table.tbl tbody tr:hover { background: rgba(45,212,255,.06); }
       </div>`;
     },
     mount(root) {
-      const sendInvite = async (m) => {
+      const sendInvite = (m) => {
         if (!m || !m.email) { U.toast("Add an email first", "error"); return; }
-        U.toast("Sending invite to " + m.email + "…");
-        try {
-          const r = await fetch("/api/invite", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ to: m.email, name: m.name, inviter: S.get().profile.name, appUrl: location.origin + location.pathname }),
-          });
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error(data.error || (r.status === 404 ? "Invites run on your Vercel site (the /api endpoint isn't on github.io)." : "HTTP " + r.status));
-          S.update("team", m.id, { invited: true, invitedAt: new Date().toISOString() });
-          U.toast("Invite sent to " + m.email, "success");
-          window.App.rerender();
-        } catch (e) {
-          U.toast("Invite failed: " + (e.message || e), "error");
-        }
+        const p = S.get().profile;
+        const url = location.origin + location.pathname;
+        const su = encodeURIComponent(`${p.name} invited you to the Workspace dashboard`);
+        const body = encodeURIComponent(
+          `Hi ${m.name || ""},\n\n${p.name} has added you to the team Workspace dashboard.\n\nOpen it here:\n${url}\n\nThanks,\n${p.name}`
+        );
+        // Open Gmail's compose window, pre-filled, sent from the admin's own Gmail.
+        window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(m.email)}&su=${su}&body=${body}`, "_blank");
+        S.update("team", m.id, { invited: true, invitedAt: new Date().toISOString() });
+        U.toast("Invite opened in Gmail — hit Send", "success");
+        window.App.rerender();
       };
 
       const open = (m) => {
