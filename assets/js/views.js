@@ -1676,13 +1676,14 @@
             file_name: fileName || null, file_url: fileUrl || null, fields: [],
             due: dueV ? new Date(dueV).toISOString() : null,
           };
+          let created;
+          try { created = await window.DB.addContract(rec); }
+          catch (e) { U.toast("Couldn't save contract: " + (e.message || e), "error"); return; }
           U.closeModal();
-          await window.DB.addContract(rec);
-          const created = window.DB.contracts()[0];
           window.App.rerender();
           if (created && created.file_url && window.Esign) {
-            Esign.openEditor(created, async (fields) => { await window.DB.updateContract(created.id, { fields }); U.toast("Contract ready — fields placed", "success"); window.App.rerender(); });
-          } else U.toast("Contract created", "success");
+            Esign.openEditor(created, async (fields) => { try { await window.DB.updateContract(created.id, { fields }); U.toast("Contract ready — fields placed", "success"); window.App.rerender(); } catch (e) { U.toast("Couldn't save fields: " + (e.message || e), "error"); } });
+          } else U.toast("Contract created (no document attached)", "success");
         };
       },
     });

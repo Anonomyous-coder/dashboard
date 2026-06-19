@@ -38,26 +38,34 @@
   };
   DB.reload = DB.load;
 
+  // surface Supabase errors instead of failing silently
+  const chk = (r) => { if (r && r.error) throw new Error(r.error.message || JSON.stringify(r.error)); return r; };
+
   // ---- profiles ----
   DB.profiles = () => DB.cache.profiles;
   DB.profile = (id) => DB.cache.profiles.find((p) => p.id === id);
-  DB.updateProfile = async (id, patch) => { await c().from("profiles").update(patch).eq("id", id); await DB.load(); };
-  DB.removeProfile = async (id) => { await c().from("profiles").delete().eq("id", id); await DB.load(); };
+  DB.updateProfile = async (id, patch) => { chk(await c().from("profiles").update(patch).eq("id", id)); await DB.load(); };
+  DB.removeProfile = async (id) => { chk(await c().from("profiles").delete().eq("id", id)); await DB.load(); };
 
   // ---- time entries ----
   DB.timeEntries = () => DB.cache.time_entries;
   DB.activeEntryFor = (uid) => DB.cache.time_entries.find((e) => e.user_id === uid && !e.clock_out);
-  DB.clockIn = async (uid, project) => { await c().from("time_entries").insert({ user_id: uid, project: project || "General" }); await DB.load(); };
-  DB.clockOut = async (entryId) => { await c().from("time_entries").update({ clock_out: new Date().toISOString() }).eq("id", entryId); await DB.load(); };
-  DB.removeTimeEntry = async (id) => { await c().from("time_entries").delete().eq("id", id); await DB.load(); };
+  DB.clockIn = async (uid, project) => { chk(await c().from("time_entries").insert({ user_id: uid, project: project || "General" })); await DB.load(); };
+  DB.clockOut = async (entryId) => { chk(await c().from("time_entries").update({ clock_out: new Date().toISOString() }).eq("id", entryId)); await DB.load(); };
+  DB.removeTimeEntry = async (id) => { chk(await c().from("time_entries").delete().eq("id", id)); await DB.load(); };
 
   // ---- contracts ----
   DB.contracts = () => DB.cache.contracts;
-  DB.addContract = async (rec) => { rec.created_by = DB.me().id; await c().from("contracts").insert(rec); await DB.load(); };
-  DB.updateContract = async (id, patch) => { await c().from("contracts").update(patch).eq("id", id); await DB.load(); };
-  DB.removeContract = async (id) => { await c().from("contracts").delete().eq("id", id); await DB.load(); };
+  DB.addContract = async (rec) => {
+    rec.created_by = DB.me().id;
+    const r = chk(await c().from("contracts").insert(rec).select().single());
+    await DB.load();
+    return r.data;
+  };
+  DB.updateContract = async (id, patch) => { chk(await c().from("contracts").update(patch).eq("id", id)); await DB.load(); };
+  DB.removeContract = async (id) => { chk(await c().from("contracts").delete().eq("id", id)); await DB.load(); };
   DB.signContract = async (ct, fieldValues) => {
-    await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString(), field_values: fieldValues || {} }).eq("id", ct.id);
+    chk(await c().from("contracts").update({ status: "signed", signed_at: new Date().toISOString(), field_values: fieldValues || {} }).eq("id", ct.id));
     const me = DB.me();
     const admins = DB.cache.profiles.filter((p) => p.role === "admin");
     for (const a of admins) {
@@ -68,14 +76,14 @@
 
   // ---- SOPs (admin uploads + assigns; employees see only theirs) ----
   DB.sops = () => DB.cache.sops;
-  DB.addSop = async (rec) => { await c().from("sops").insert(rec); await DB.load(); };
-  DB.updateSop = async (id, patch) => { await c().from("sops").update(patch).eq("id", id); await DB.load(); };
-  DB.removeSop = async (id) => { await c().from("sops").delete().eq("id", id); await DB.load(); };
+  DB.addSop = async (rec) => { chk(await c().from("sops").insert(rec)); await DB.load(); };
+  DB.updateSop = async (id, patch) => { chk(await c().from("sops").update(patch).eq("id", id)); await DB.load(); };
+  DB.removeSop = async (id) => { chk(await c().from("sops").delete().eq("id", id)); await DB.load(); };
 
   // ---- departments (admin-managed; used when clocking in) ----
   DB.departments = () => DB.cache.departments;
-  DB.addDepartment = async (name) => { await c().from("departments").insert({ name }); await DB.load(); };
-  DB.removeDepartment = async (id) => { await c().from("departments").delete().eq("id", id); await DB.load(); };
+  DB.addDepartment = async (name) => { chk(await c().from("departments").insert({ name })); await DB.load(); };
+  DB.removeDepartment = async (id) => { chk(await c().from("departments").delete().eq("id", id)); await DB.load(); };
 
   // ---- notifications ----
   DB.notifications = () => DB.cache.notifications;
