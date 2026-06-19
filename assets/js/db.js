@@ -8,7 +8,7 @@
   const DB = {
     active: false,
     viewAs: null, // admin "view as member": a profile id being inspected
-    cache: { profiles: [], time_entries: [], contracts: [], notifications: [] },
+    cache: { profiles: [], time_entries: [], contracts: [], notifications: [], departments: [] },
   };
 
   const c = () => A.client();
@@ -21,16 +21,18 @@
   DB.load = async function () {
     if (!(A && A.enabled && A.user())) return;
     DB.active = true;
-    const [pf, te, ct, nt] = await Promise.all([
+    const [pf, te, ct, nt, dp] = await Promise.all([
       c().from("profiles").select("*").order("created_at", { ascending: true }),
       c().from("time_entries").select("*").order("clock_in", { ascending: false }),
       c().from("contracts").select("*").order("created_at", { ascending: false }),
       c().from("notifications").select("*").order("created_at", { ascending: false }),
+      c().from("departments").select("*").order("name", { ascending: true }),
     ]);
     DB.cache.profiles = pf.data || [];
     DB.cache.time_entries = te.data || [];
     DB.cache.contracts = ct.data || [];
     DB.cache.notifications = nt.data || [];
+    DB.cache.departments = dp.data || [];
   };
   DB.reload = DB.load;
 
@@ -61,6 +63,11 @@
     }
     await DB.load();
   };
+
+  // ---- departments (admin-managed; used when clocking in) ----
+  DB.departments = () => DB.cache.departments;
+  DB.addDepartment = async (name) => { await c().from("departments").insert({ name }); await DB.load(); };
+  DB.removeDepartment = async (id) => { await c().from("departments").delete().eq("id", id); await DB.load(); };
 
   // ---- notifications ----
   DB.notifications = () => DB.cache.notifications;

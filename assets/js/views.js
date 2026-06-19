@@ -1417,17 +1417,33 @@
       <div class="grid cols-4">${stats}</div>
       <div class="card mt-24"><div class="card-head"><h3>${single ? "Your clock" : "Team — clock in / out"}</h3></div>
         <div class="card-pad"><div class="grid cols-3">${cards}</div></div></div>
+      ${!single ? `<div class="card mt-24"><div class="card-head"><h3>Departments</h3><div class="ch-actions"><button class="btn sm primary" id="addDept">＋ Add department</button></div></div>
+        <div class="card-pad"><p class="muted" style="margin-bottom:10px;font-size:13px">These are the options people choose from when they clock in.</p>
+        <div class="flex gap-8" style="flex-wrap:wrap">${(window.DB.departments() || []).map((d) => `<span class="chip">${U.esc(d.name)} <span data-deldept="${d.id}" title="Remove" style="cursor:pointer;color:var(--danger);margin-left:4px">✕</span></span>`).join("") || '<span class="faint">No departments yet — add one.</span>'}</div></div></div>` : ""}
       <div class="card mt-24"><div class="card-head"><h3>Timesheet</h3><div class="ch-actions"><span class="chip">${scope.length} entries</span></div></div>
-        <div class="table-wrap"><table class="tbl"><thead><tr>${single ? "" : "<th>Member</th>"}<th>Project</th><th>Date</th><th>In</th><th>Out</th><th>Duration</th><th></th></tr></thead>
+        <div class="table-wrap"><table class="tbl"><thead><tr>${single ? "" : "<th>Member</th>"}<th>Department</th><th>Date</th><th>In</th><th>Out</th><th>Duration</th><th></th></tr></thead>
         <tbody>${scope.length ? rows : `<tr><td colspan="${single ? 6 : 7}">${U.empty("⏱", "No time logged yet. Clock in to get started.")}</td></tr>`}</tbody></table></div></div>`;
   }
   function timetrackerDBMount(root) {
+    const addDeptBtn = root.querySelector("#addDept");
+    if (addDeptBtn) addDeptBtn.onclick = () => U.formModal({
+      title: "Add department", submitLabel: "Add",
+      fields: [{ name: "name", label: "Department name", required: true, placeholder: "e.g. Customer Support" }],
+      onSubmit: async (d) => { await window.DB.addDepartment(d.name); U.toast("Department added", "success"); window.App.rerender(); },
+    });
+    root.querySelectorAll("[data-deldept]").forEach((x) => (x.onclick = () =>
+      U.confirm("Remove this department?", async () => { await window.DB.removeDepartment(x.dataset.deldept); U.toast("Removed"); window.App.rerender(); })));
+
     root.querySelectorAll("[data-clockin]").forEach((b) => (b.onclick = () => {
       const id = b.dataset.clockin, name = b.dataset.name;
+      const deps = (window.DB.departments && window.DB.departments()) || [];
+      const fields = deps.length
+        ? [{ name: "project", label: "What are you working on? (department)", type: "select", options: deps.map((d) => ({ value: d.name, label: d.name })) }]
+        : [{ name: "project", label: "What are you working on?", placeholder: "e.g. Client onboarding", value: "General" }];
       U.formModal({
         title: "Clock in — " + name,
         submitLabel: "Clock in",
-        fields: [{ name: "project", label: "What are you working on?", placeholder: "e.g. Client onboarding", value: "General" }],
+        fields,
         onSubmit: async (data) => { await window.DB.clockIn(id, data.project || "General"); U.toast("Clocked in", "success"); window.App.rerender(); window.App.refreshClockPill(); },
       });
     }));
