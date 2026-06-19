@@ -27,6 +27,11 @@ export default async function handler(req, res) {
   const country = (q.country || "us").toLowerCase();
   const pagesPer = Math.min(parseInt(q.pages || "2", 10) || 2, 5);
   const isRemote = (s) => /remote|work from home|wfh|anywhere|telecommute|virtual|home[- ]?based/.test(s);
+  // only keep jobs whose title/description genuinely match the category
+  const CAT_RE = {
+    sales: /\b(sdr|bdr|sales development|business development|inside sales|account executive)\b/i,
+    coding: /\b(cod(er|ers|ing)|medical bill|cpc\b|ccs\b|icd|risk adjustment|health information|\bhim\b)\b/i,
+  };
 
   const jobs = [];
   try {
@@ -45,7 +50,9 @@ export default async function handler(req, res) {
           const title = (o.title || "").toLowerCase();
           const loc = ((o.location && o.location.display_name) || "").toLowerCase();
           const desc = (o.description || "").toLowerCase();
-          if (!isRemote(title + " " + loc + " " + desc)) continue;
+          const text = (o.title || "") + " " + (o.description || "");
+          if (!isRemote((title + " " + loc + " " + desc))) continue;
+          if (CAT_RE[s.cat] && !CAT_RE[s.cat].test(text)) continue; // drop loosely-related results
           jobs.push({
             id: String(o.id),
             company: (o.company && o.company.display_name) || "—",
