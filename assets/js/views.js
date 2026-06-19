@@ -1837,7 +1837,7 @@
     return `
       <div class="page-head">
         <div class="ph-text"><h1>Team</h1><p>Everyone in your workspace. Use “View as” to open a member's account.</p></div>
-        <div class="ph-actions"><button class="btn primary" id="invitePeople">✉ Invite someone</button></div>
+        <div class="ph-actions"><button class="btn primary" id="addEmployee">＋ Add employee</button><button class="btn" id="invitePeople">✉ Invite (self sign-up)</button></div>
       </div>
 
       <div class="grid cols-4">
@@ -1867,6 +1867,7 @@
               <div class="flex gap-8">
                 <button class="btn sm" data-editmember="${m.id}">Edit</button>
                 ${m.id !== me.id ? `<button class="btn sm ghost" data-viewas="${m.id}">View as</button>
+                  <button class="btn sm ghost" data-login="${m.id}">Login & password</button>
                   <button class="btn sm ghost" data-role="${m.id}" data-to="${m.role === "admin" ? "employee" : "admin"}">${m.role === "admin" ? "Make employee" : "Make admin"}</button>
                   <button class="btn sm ghost" data-remove="${m.id}" style="color:var(--danger)">Remove</button>` : ""}
               </div>
@@ -1894,6 +1895,38 @@
         },
       });
     };
+    const addEmp = root.querySelector("#addEmployee");
+    if (addEmp) addEmp.onclick = () => U.formModal({
+      title: "Add employee",
+      submitLabel: "Create account",
+      values: { role: "employee" },
+      fields: [
+        { name: "full_name", label: "Full name", half: true },
+        { name: "email", label: "Login email", type: "email", required: true, half: true },
+        { name: "password", label: "Temporary password", required: true, half: true },
+        { name: "role", label: "Role", type: "select", options: [{ value: "employee", label: "Employee" }, { value: "admin", label: "Admin" }], half: true },
+      ],
+      onSubmit: async (data) => {
+        try { await window.DB.adminCreateUser(data); U.toast("Account created for " + data.email, "success"); window.App.rerender(); }
+        catch (e) { U.toast("Couldn't create: " + (e.message || e), "error"); }
+      },
+    });
+    root.querySelectorAll("[data-login]").forEach((b) => (b.onclick = () => {
+      const m = window.DB.profile(b.dataset.login);
+      U.formModal({
+        title: "Login & password — " + window.DB.displayName(m),
+        submitLabel: "Update login",
+        values: { email: m.email || "" },
+        fields: [
+          { name: "email", label: "Login email", type: "email" },
+          { name: "password", label: "New password (blank = keep current)", type: "password" },
+        ],
+        onSubmit: async (data) => {
+          try { await window.DB.adminUpdateUser(m.id, { email: data.email, password: data.password }); U.toast("Login updated", "success"); window.App.rerender(); }
+          catch (e) { U.toast("Couldn't update: " + (e.message || e), "error"); }
+        },
+      });
+    }));
     root.querySelectorAll("[data-editmember]").forEach((b) => (b.onclick = () => {
       const m = window.DB.profile(b.dataset.editmember);
       U.formModal({
