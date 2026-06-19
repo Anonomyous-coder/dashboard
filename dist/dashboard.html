@@ -1144,7 +1144,7 @@ window.APP_CONFIG = {
       body: `
         <div class="flex gap-8" id="esTools" style="flex-wrap:wrap;margin-bottom:10px">
           ${Object.keys(TYPES).map((t) => `<button class="chip" data-type="${t}" style="cursor:pointer">${TYPES[t]}</button>`).join("")}
-          <span class="faint" style="font-size:12px;align-self:center">Pick a field, then click on the document to drop it.</span>
+          <span class="faint" id="esHint" style="font-size:12px;align-self:center">Pick a field above, then click on the document to place it.</span>
         </div>
         <div id="esHost" style="max-height:62vh;overflow:auto;background:var(--surface-2);border-radius:8px;padding:10px"></div>`,
       footer: `<button class="btn" data-modal-close>Cancel</button><button class="btn primary" id="esSave">Save fields</button>`,
@@ -1152,11 +1152,15 @@ window.APP_CONFIG = {
         card.style.width = "min(920px, calc(100vw - 32px))";
         const host = card.querySelector("#esHost");
         const tools = card.querySelectorAll("#esTools [data-type]");
-        const paint = () => tools.forEach((b) => (b.style.cssText = b.dataset.type === active
-          ? "background:var(--primary);color:#04121c;border-color:var(--primary);cursor:pointer;font-weight:700"
-          : "cursor:pointer"));
-        tools.forEach((b) => (b.onclick = () => { active = b.dataset.type; paint(); }));
-        paint();
+        const hint = card.querySelector("#esHint");
+        const paint = () => {
+          tools.forEach((b) => (b.style.cssText = b.dataset.type === active
+            ? "background:var(--primary);color:#04121c;border-color:var(--primary);cursor:pointer;font-weight:700"
+            : "cursor:pointer"));
+          if (hint) hint.textContent = active ? `Click once on the document to drop the “${TYPES[active]}” field.` : "Pick a field above, then click on the document to place it.";
+        };
+        tools.forEach((b) => (b.onclick = () => { active = (active === b.dataset.type ? null : b.dataset.type); paint(); }));
+        active = null; paint();
         const pages = await renderPages(host, c);
         const draw = () => pages.forEach((pg, idx) => {
           pg.querySelectorAll(".esf").forEach((x) => x.remove());
@@ -1170,11 +1174,13 @@ window.APP_CONFIG = {
           });
         });
         pages.forEach((pg, idx) => pg.addEventListener("click", (e) => {
-          if (e.target.closest(".esf")) return;
+          if (!active) return;                       // no tool selected → ignore clicks
+          if (e.target.closest(".esf")) return;      // clicking an existing field → ignore
           const r = pg.getBoundingClientRect();
           const x = ((e.clientX - r.left) / r.width) * 100, y = ((e.clientY - r.top) / r.height) * 100;
           const big = active === "signature" || active === "address";
           fields.push({ id: Math.random().toString(36).slice(2, 8), type: active, page: idx, x: Math.max(0, Math.min(94, x - 9)), y: Math.max(0, Math.min(96, y - 2)), w: big ? 26 : 20, h: big ? 9 : 5 });
+          active = null; paint();                    // de-select after placing → prevents duplicates
           draw();
         }));
         draw();
